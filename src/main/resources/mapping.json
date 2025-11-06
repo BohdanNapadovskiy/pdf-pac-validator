@@ -1,0 +1,126 @@
+{
+  "version": "1.0",
+  "priority": [
+    "clauseRules",
+    "tagHints",
+    "keywordFallbacks",
+    "globalFallback"
+  ],
+
+  "mappings": {
+    "clauseRules": [
+
+      { "spec": "ISO 14289-2", "clausePrefix": "8.4.4", "object": "PDDocument",
+        "category": "BASIC_REQUIREMENTS", "subcategory": "NATURAL_LANGUAGE", "element": "CORRECTNESS_OF_LANGUAGE_ATTRIBUTE" },
+      { "spec": "ISO 14289-2", "clausePrefix": "8.4.4", "object": "CosLang",
+        "category": "BASIC_REQUIREMENTS", "subcategory": "NATURAL_LANGUAGE", "element": "LANG_TAG_VALID" },
+
+
+
+      { "spec": "ISO 14289-2:2024", "clausePrefix": "5",
+        "object": "MainXMPPackage",
+        "category": "METADATA_AND_SETTINGS", "subcategory": "PDFUA_IDENTIFICATION", "element": "PDFUA_ID_PRESENT" },
+
+      { "spec": "ISO 14289-2:2024", "clausePrefix": "5",
+        "object": "PDFUAIdentification",
+        "category": "METADATA_AND_SETTINGS", "subcategory": "PDFUA_IDENTIFICATION", "element": "PDFUA_PART_EQ_2" },
+
+      { "spec": "ISO 14289-2:2024", "clausePrefix": "5",
+        "object": "PDFUAIdentification",
+        "category": "METADATA_AND_SETTINGS", "subcategory": "PDFUA_IDENTIFICATION", "element": "PDFUA_REV_FOUR_DIGIT_YEAR" },
+
+      { "spec": "ISO 14289-2:2024", "clausePrefix": "5",
+        "object": "PDFUAIdentification",
+        "category": "METADATA_AND_SETTINGS", "subcategory": "PDFUA_IDENTIFICATION", "element": "PDFUA_NS_PREFIX_CORRECT" },
+
+      { "spec": "ISO 32005", "clausePrefix": "",
+        "category": "LOGICAL_STRUCTURE", "subcategory": "STRUCTURE_ELEMENTS", "element": "AUTO_FROM_STANDARD_TYPES" }
+
+    ],
+
+    "tagHints": {
+      "font":      { "category": "BASIC_REQUIREMENTS",    "subcategory": "FONTS" },
+      "artifact":  { "category": "BASIC_REQUIREMENTS",    "subcategory": "CONTENT" },
+      "unicode":   { "category": "BASIC_REQUIREMENTS",    "subcategory": "CONTENT" },
+      "structure": { "category": "LOGICAL_STRUCTURE",     "subcategory": "STRUCTURE_ELEMENTS" },
+      "annotation":{ "category": "LOGICAL_STRUCTURE",     "subcategory": "STRUCTURE_ELEMENTS", "element": "ANNOTATIONS" },
+      "alt-text":  { "category": "LOGICAL_STRUCTURE",     "subcategory": "ALTERNATIVE_DESCRIPTIONS" },
+      "metadata":  { "category": "METADATA_AND_SETTINGS", "subcategory": "DOC_INFO" },
+      "reading-order": { "category": "LOGICAL_STRUCTURE",  "subcategory": "READING_ORDER" },
+      "color":         { "category": "BASIC_REQUIREMENTS", "subcategory": "COLOR" }
+
+    },
+
+    "keywordFallbacks": [
+      { "containsAny": ["/lang", "language"], "category": "METADATA_AND_SETTINGS", "subcategory": "LANGUAGE" },
+      { "containsAny": ["tounicode", "unicode"], "category": "BASIC_REQUIREMENTS", "subcategory": "CONTENT" }
+    ],
+
+    "globalFallback": { "category": "BASIC_REQUIREMENTS", "subcategory": "PDF_SYNTAX" }
+  },
+
+  "elementTypes": {
+    "allowed": [ "HEADINGS", "NOTES", "ANNOTATIONS", "FIGURES", "TABLES", "NONE" ],
+    "standardTypeToElement": {
+      "H1": "HEADINGS", "H2": "HEADINGS", "H3": "HEADINGS", "H4": "HEADINGS", "H5": "HEADINGS", "H6": "HEADINGS",
+      "TABLE": "TABLES", "TR": "TABLES", "TH": "TABLES", "TD": "TABLES", "THEAD": "TABLES", "TBODY": "TABLES", "TFOOT": "TABLES",
+      "NOTE": "NOTES", "FENOTE": "NOTES",
+      "LINK": "ANNOTATIONS", "REFERENCE": "ANNOTATIONS",
+      "FIGURE": "FIGURES", "CAPTION": "FIGURES",
+      "L": "NONE", "LI": "NONE", "LBL": "NONE", "LBODY": "NONE",
+      "TOC": "NONE", "TOCI": "NONE", "INDEX": "NONE", "BIBENTRY": "NONE", "BIBLIOGRAPHY": "NONE",
+      "RUBY": "NONE", "RB": "NONE", "RT": "NONE", "RP": "NONE", "WARICHU": "NONE",
+      "P": "NONE", "SPAN": "NONE", "QUOTE": "NONE", "CODE": "NONE",
+      "SECT": "NONE", "DIV": "NONE", "PART": "NONE", "ART": "NONE", "ASIDE": "NONE", "DOCUMENTFRAGMENT": "NONE"
+    }
+  },
+
+  "iso32005ElementExtraction": {
+    "fromObjectPrefix": "SE",
+    "parseTagsFrom": ["description", "test"],
+    "tagPattern": "<([A-Za-z][A-Za-z0-9]*)>",
+    "alsoFromClause": true,
+    "stripClausePrefixPattern": "Table\\s*\\d+\\.?\\s*",
+    "splitClauseOn": "[\\s\\-/.,]+"
+  },
+  "orders": {
+    "categories": [
+      "BASIC_REQUIREMENTS",
+      "LOGICAL_STRUCTURE",
+      "METADATA_AND_SETTINGS"
+    ],
+    "subcategories": {
+      "LOGICAL_STRUCTURE": [
+        "STRUCTURE_TREE",
+        "ROLE_MAPPING",
+        "STRUCTURE_ELEMENTS",
+        "ALTERNATIVE_DESCRIPTIONS"
+      ],
+      "BASIC_REQUIREMENTS": [
+        "PDF_SYNTAX",
+        "FONTS",
+        "CONTENT",
+        "EMBEDDED_FILES",
+        "NATURAL_LANGUAGE"
+      ],
+      "METADATA_AND_SETTINGS": [
+        "PDFUA_IDENTIFICATION",
+        "LANGUAGE",
+        "OUTPUT_INTENT",
+        "DOC_INFO",
+        "XMP_DC",
+        "SECURITY_AND_SIGNATURES",
+        "OUTLINES"
+      ]
+    },
+    "elements": [
+      "HEADINGS",
+      "TABLES",
+      "FIGURES",
+      "ANNOTATIONS",
+      "NOTES",
+      "NONE"
+    ]
+  }
+
+}

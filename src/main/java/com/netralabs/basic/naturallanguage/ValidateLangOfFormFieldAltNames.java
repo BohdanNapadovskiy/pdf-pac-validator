@@ -1,0 +1,64 @@
+package com.netralabs.basic.naturallanguage;
+
+import com.itextpdf.forms.PdfAcroForm;
+import com.itextpdf.forms.fields.PdfFormField;
+import com.itextpdf.kernel.pdf.*;
+import com.itextpdf.kernel.pdf.annot.PdfWidgetAnnotation;
+import com.netralabs.Rule;
+import com.netralabs.basic.content.Context;
+import com.netralabs.domain.Phase;
+import com.netralabs.report.FindingDTO;
+
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+
+import static com.netralabs.basic.naturallanguage.ActualTextHelper.*;
+import static com.netralabs.basic.naturallanguage.LangUtils.docLang;
+import static com.netralabs.domain.PDFUACheckpoint.NATURAL_LANGUAGE_ALTERNATE_NAMES_FORM_FIELD;
+
+public class ValidateLangOfFormFieldAltNames implements Rule {
+    @Override
+    public EnumSet<Phase> phases(){ return EnumSet.of(Phase.DOCUMENT); }
+
+    @Override
+    public List<FindingDTO> run(Context ctx) {
+        List<FindingDTO> out = new ArrayList<>();
+        PdfDocument pdf = ctx.pdf();
+        String doc = docLang(pdf);
+        validateLanguageOfAlternateNames(pdf, out);
+        return out;
+    }
+
+
+
+    public void validateLanguageOfAlternateNames(PdfDocument pdf, List<FindingDTO> out) {
+        String docLang = pdf.getCatalog().getLang().getValue();
+        PdfAcroForm acro = PdfAcroForm.getAcroForm(pdf, false);
+        if (acro == null) return;
+
+        for (PdfFormField field : acro.getAllFormFields().values()) {
+            PdfString tu = field.getAlternativeName();
+            if (tu == null || tu.getValue().isBlank())
+                continue;
+            String fieldLang = field.getPdfObject().getAsString(PdfName.Lang).getValue();
+            String pageLang = null;
+            int pageNum = 0;
+            List<PdfWidgetAnnotation> widgets = field.getWidgets();
+            if (widgets != null && !widgets.isEmpty()) {
+                PdfWidgetAnnotation w = widgets.get(0);
+                PdfDictionary pgDict = w.getPageObject();
+                if (pgDict != null) {
+                    PdfPage page = pdf.getPage(pgDict);
+                    if (page != null) {
+                        pageNum  = pdf.getPageNumber(page);
+                        pageLang = pageLangOf(page.getPdfObject());
+                    }
+                }
+            }
+
+            String effective = firstNonBlank(fieldLang, pageLang, docLang);
+            addLangFinding(out, effective, NATURAL_LANGUAGE_ALTERNATE_NAMES_FORM_FIELD, pageNum);
+        }
+    }
+}
