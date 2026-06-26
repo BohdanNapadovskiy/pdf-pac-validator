@@ -7,6 +7,7 @@ import com.netralabs.report.ReportDTO;
 import com.netralabs.report.ReportWriter;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -19,14 +20,14 @@ public class PDFValidator {
       System.exit(1);
       return;
     }
-    String path = args[0];
+    String path = normalizePath(args[0]);
     String output = null;
     for (int i = 1; i < args.length - 1; i++) {
       if ("-o".equals(args[i])) output = args[i + 1];
     }
 
     log.info("Starting PDF validation for: {}", path);
-    try (PdfDocument pdf = new PdfDocument(new PdfReader(path))) {
+    try (PdfDocument pdf = new PdfDocument(new PdfReader(new File(path)))) {
       Runner runner = new Runner();
       List<FindingDTO> findings = runner.runAll(pdf, path);
       ReportDTO report = ReportBuilder.build(pdf, path, findings);
@@ -39,4 +40,18 @@ public class PDFValidator {
     }
   }
 
+  /**
+   * Convert MSYS / Git Bash style mount paths like "/c/foo/bar" to Windows "C:/foo/bar".
+   * Other path styles pass through unchanged. Defensive: handles paths quoted across the
+   * shell boundary that iText's RandomAccessSourceFactory rejects on certain filenames.
+   */
+  private static String normalizePath(String p) {
+    if (p != null && p.length() >= 3
+        && p.charAt(0) == '/'
+        && Character.isLetter(p.charAt(1))
+        && p.charAt(2) == '/') {
+      return Character.toUpperCase(p.charAt(1)) + ":" + p.substring(2);
+    }
+    return p;
+  }
 }

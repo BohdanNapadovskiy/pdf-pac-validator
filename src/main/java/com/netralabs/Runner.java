@@ -52,14 +52,14 @@ public class Runner {
 
     // DOCUMENT phase
     for (Entry r : rules) if (r.phases().contains(Phase.DOCUMENT)) {
-      out.addAll(r.rule().run(new Context(pdf, null, null, 0, vera)));
+      safeRun(r, new Context(pdf, null, null, 0, vera), out);
     }
 
     // PAGE phase
     for (int i = 1; i <= pages; i++) {
       var ctx = new Context(pdf, pdf.getPage(i), null, i, vera);
       for (Entry r : rules) if (r.phases().contains(Phase.PAGE)) {
-        out.addAll(r.rule().run(ctx));
+        safeRun(r, ctx, out);
       }
     }
 
@@ -67,20 +67,39 @@ public class Runner {
     for (int i = 1; i <= pages; i++) {
       var ctx = new Context(pdf, pdf.getPage(i), null, i, vera);
       for (Entry r : rules) if (r.phases().contains(Phase.CONTENT)) {
-        out.addAll(r.rule().run(ctx));
+        safeRun(r, ctx, out);
       }
     }
 
-    // STRUCT phase
-    TagTreePointer ttp = new TagTreePointer(pdf);
-    int rootKids = ttp.getKidsRoles().size();
-    for (int i = 0; i < rootKids; i++) {
-      ttp.moveToKid(i);
-      dfsStruct(pdf, ttp, rules, out, vera);
-      ttp.moveToParent();
+    // STRUCT phase — skipped for untagged PDFs so we behave like PAC (NA on struct-tree rows)
+    // instead of crashing with "Must be a tagged document". Also guards against iText quirks
+    // like "no associate PdfWriter" thrown by RootTagNormalizer on partial structure trees.
+    if (pdf.isTagged()) {
+      try {
+        TagTreePointer ttp = new TagTreePointer(pdf);
+        int rootKids = ttp.getKidsRoles().size();
+        for (int i = 0; i < rootKids; i++) {
+          ttp.moveToKid(i);
+          dfsStruct(pdf, ttp, rules, out, vera);
+          ttp.moveToParent();
+        }
+      } catch (Exception e) {
+        log.warn("Skipping STRUCT phase — structure tree not traversable: {}", e.getMessage());
+      }
+    } else {
+      log.info("PDF is not tagged — skipping STRUCT-phase rules");
     }
 
     return out;
+  }
+
+  private void safeRun(Entry r, Context ctx, List<FindingDTO> out) {
+    try {
+      out.addAll(r.rule().run(ctx));
+    } catch (Exception e) {
+      log.warn("Rule {} crashed on checkpoint {}: {}",
+          r.rule().getClass().getSimpleName(), r.cp(), e.getMessage());
+    }
   }
 
   private int safeStructPageNumber(PdfDocument pdf, TagTreePointer ttp) {
@@ -110,7 +129,7 @@ public class Runner {
     // Run STRUCT-phase rules at the current element
     for (Entry r : rules)
       if (r.phases().contains(Phase.STRUCT)) {
-        out.addAll(r.rule().run(ctx));
+        safeRun(r, ctx, out);
       }
 
     // Get the current struct element and iterate over its *element* kids only
@@ -123,8 +142,13 @@ public class Runner {
         // This is an MCR (MCID/ObjRef) or flushed node — skip recursion
         continue;
       }
-      TagTreePointer childPtr = pdf.getTagStructureContext().createPointerForStructElem(kidElem);
-      dfsStruct(pdf, childPtr, rules, out, vera);
+      try {
+        TagTreePointer childPtr = pdf.getTagStructureContext().createPointerForStructElem(kidElem);
+        dfsStruct(pdf, childPtr, rules, out, vera);
+      } catch (Exception e) {
+        // Malformed struct branch (e.g. missing parent) — skip but keep walking siblings.
+        log.warn("Skipping malformed struct branch: {}", e.getMessage());
+      }
     }
   }
 }
