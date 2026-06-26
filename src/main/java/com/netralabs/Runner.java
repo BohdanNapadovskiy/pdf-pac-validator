@@ -8,6 +8,10 @@ import com.netralabs.basic.content.Context;
 import com.netralabs.domain.PDFUACheckpoint;
 import com.netralabs.domain.Phase;
 import com.netralabs.report.FindingDTO;
+import com.netralabs.vera.VeraPdfAdapterRule;
+import com.netralabs.vera.VeraRuleMapping;
+import com.netralabs.vera.VeraRunner;
+import com.netralabs.vera.VeraValidationResults;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -21,25 +25,39 @@ public class Runner {
   private record Entry(PDFUACheckpoint cp, Rule rule, EnumSet<Phase> phases) {}
 
   public List<FindingDTO> runAll(PdfDocument pdf) {
+    return runAll(pdf, null);
+  }
+
+  public List<FindingDTO> runAll(PdfDocument pdf, String pdfPath) {
     List<FindingDTO> out = new ArrayList<>();
     int pages = pdf.getNumberOfPages();
 
-    // Materialize rule instances once
+    VeraValidationResults vera = (pdfPath != null)
+        ? VeraRunner.validate(pdfPath)
+        : VeraValidationResults.empty();
+
+    // Materialize rule instances. Native and vera adapter can coexist for a checkpoint —
+    // e.g. StructElementByRoleRule emits one PASSED per element (count) while the vera
+    // adapter still drains vera-reported failures into the same checkpoint.
     List<Entry> rules = new ArrayList<>();
     for (PDFUACheckpoint cp : PDFUACheckpoint.values()) {
-      if (cp.getFactory() != null) {
+      boolean hasRunnableNative = cp.getFactory() != null && !cp.getPhases().isEmpty();
+      if (hasRunnableNative) {
         rules.add(new Entry(cp, cp.getFactory().get(), cp.getPhases()));
+      }
+      if (VeraRuleMapping.covers(cp)) {
+        rules.add(new Entry(cp, new VeraPdfAdapterRule(cp), EnumSet.of(Phase.DOCUMENT)));
       }
     }
 
     // DOCUMENT phase
     for (Entry r : rules) if (r.phases().contains(Phase.DOCUMENT)) {
-      out.addAll(r.rule().run(new Context(pdf, null, null, 0)));
+      out.addAll(r.rule().run(new Context(pdf, null, null, 0, vera)));
     }
 
     // PAGE phase
     for (int i = 1; i <= pages; i++) {
-      var ctx = new Context(pdf, pdf.getPage(i), null, i);
+      var ctx = new Context(pdf, pdf.getPage(i), null, i, vera);
       for (Entry r : rules) if (r.phases().contains(Phase.PAGE)) {
         out.addAll(r.rule().run(ctx));
       }
@@ -47,7 +65,7 @@ public class Runner {
 
     // CONTENT phase
     for (int i = 1; i <= pages; i++) {
-      var ctx = new Context(pdf, pdf.getPage(i), null, i);
+      var ctx = new Context(pdf, pdf.getPage(i), null, i, vera);
       for (Entry r : rules) if (r.phases().contains(Phase.CONTENT)) {
         out.addAll(r.rule().run(ctx));
       }
@@ -58,7 +76,7 @@ public class Runner {
     int rootKids = ttp.getKidsRoles().size();
     for (int i = 0; i < rootKids; i++) {
       ttp.moveToKid(i);
-      dfsStruct(pdf, ttp, rules, out);
+      dfsStruct(pdf, ttp, rules, out, vera);
       ttp.moveToParent();
     }
 
@@ -85,9 +103,9 @@ public class Runner {
   }
 
   private void dfsStruct(PdfDocument pdf, TagTreePointer ttp,
-      List<Entry> rules, List<FindingDTO> out) {
+      List<Entry> rules, List<FindingDTO> out, VeraValidationResults vera) {
     int pageNum = safeStructPageNumber(pdf, ttp);
-    var ctx = new Context(pdf, null, ttp, pageNum);
+    var ctx = new Context(pdf, null, ttp, pageNum, vera);
 
     // Run STRUCT-phase rules at the current element
     for (Entry r : rules)
@@ -106,7 +124,7 @@ public class Runner {
         continue;
       }
       TagTreePointer childPtr = pdf.getTagStructureContext().createPointerForStructElem(kidElem);
-      dfsStruct(pdf, childPtr, rules, out);
+      dfsStruct(pdf, childPtr, rules, out, vera);
     }
   }
 }

@@ -1,30 +1,21 @@
 package com.netralabs.logicalstructure.structureelements.headings;
 
 import com.itextpdf.kernel.pdf.PdfDocument;
-import com.itextpdf.kernel.pdf.tagging.IStructureNode;
 import com.itextpdf.kernel.pdf.tagging.PdfStructElem;
 import com.itextpdf.kernel.pdf.tagging.PdfStructTreeRoot;
-import com.itextpdf.kernel.pdf.tagutils.TagStructureContext;
-import com.itextpdf.kernel.pdf.tagutils.TagTreeIterator;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
+import com.netralabs.basic.pdfsyntax.StructUtils;
 import com.netralabs.logicalstructure.structureelements.StructWalk;
 import com.netralabs.report.FindingDTO;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 
 import static com.netralabs.domain.PDFUACheckpoint.FIRST_HEADING_LEVEL;
 
 public class ValidateFirstHeadingLevel implements Rule {
-
-    @Override
-    public EnumSet<Phase> phases() {
-        return null;
-    }
 
     @Override
     public List<FindingDTO> run(Context ctx) {
@@ -40,22 +31,25 @@ public class ValidateFirstHeadingLevel implements Rule {
             out.add(new FindingDTO(Severity.IGNORED, FIRST_HEADING_LEVEL, 0, null));
             return;
         }
-        boolean[] found = { false };
+        int[] firstLevel = { -1 };
+        int[] firstPage = { 0 };
         StructWalk.walk(pdf, (PdfStructElem el) -> {
-            if (found[0])
-                return;
+            if (firstLevel[0] != -1) return;
             int lvl = StructWalk.headingLevel(pdf, el);
-            if (lvl != -1) {
-                found[0] = true;
-                if (lvl != 1) {
-                    out.add(new FindingDTO(Severity.ERROR, FIRST_HEADING_LEVEL, 0, null));
-                }
-            } else {
-                out.add(new FindingDTO(Severity.IGNORED, FIRST_HEADING_LEVEL, 0, null));
-            }
+            if (lvl == -1) return;
+            firstLevel[0] = lvl;
+            firstPage[0] = StructUtils.pageNumOf(pdf, el.getPdfObject());
         });
-        if (!found[0]) {
-            out.add(new FindingDTO(Severity.PASSED, FIRST_HEADING_LEVEL, 0, null));
+        if (firstLevel[0] == -1) {
+            out.add(new FindingDTO(Severity.IGNORED, FIRST_HEADING_LEVEL, 0, null));
+            return;
+        }
+        // Document-level check (one fact: is the very first heading H1?) — one finding per document.
+        if (firstLevel[0] == 1) {
+            out.add(new FindingDTO(Severity.PASSED, FIRST_HEADING_LEVEL, firstPage[0], null));
+        } else {
+            out.add(new FindingDTO(Severity.ERROR, FIRST_HEADING_LEVEL, firstPage[0], null,
+                    "First heading level is not H1"));
         }
     }
 

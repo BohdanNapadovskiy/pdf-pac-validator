@@ -3,15 +3,14 @@ package com.netralabs.basic.pdfsyntax;
 import com.itextpdf.kernel.pdf.*;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
+import static com.netralabs.basic.pdfsyntax.StructUtils.pageNumOf;
 import static com.netralabs.basic.pdfsyntax.StructUtils.structTreeRoot;
 import static com.netralabs.basic.pdfsyntax.StructUtils.walkStructure;
 import static com.netralabs.domain.PDFUACheckpoint.LOGICAL_STRUCTURE_SYNTAX;
@@ -21,13 +20,10 @@ public class ValidateLogicalStructureSyntax implements Rule {
     private static final Set<String> STD_ROLES = Set.of(
             "Document", "Part", "Art", "Sect", "Div", "P", "H", "H1", "H2", "H3", "H4", "H5", "H6",
             "L", "LI", "Lbl", "LBody", "Table", "TR", "TH", "TD", "THead", "TBody", "TFoot",
-            "Figure", "Caption", "Formula", "Link", "Note", "Annot", "Span", "Quote", "Code"
+            "Figure", "Caption", "Formula", "Link", "Note", "Annot", "Span", "Quote", "Code",
+            "Reference", "BibEntry", "BlockQuote", "TOC", "TOCI", "Index", "Private",
+            "Ruby", "RB", "RT", "RP", "Warichu", "WP", "WT", "Form"
     );
-
-    @Override
-    public EnumSet<Phase> phases() {
-        return EnumSet.of(Phase.DOCUMENT);
-    }
 
     @Override
     public List<FindingDTO> run(Context ctx) {
@@ -39,44 +35,50 @@ public class ValidateLogicalStructureSyntax implements Rule {
         PdfDictionary roleMap = str.getAsDictionary(new PdfName("RoleMap"));
 
         walkStructure(pdf, (parent, se) -> {
+            int page = pageNumOf(pdf, se);
+            String error = null;
+
             // 1) Role /S must exist and be valid or mapped
             PdfName role = se.getAsName(PdfName.S);
             if (role == null) {
-                out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, 0, null));
+                error = "Structure element missing /S role";
             } else if (!isValidRole(role, roleMap)) {
-                out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, 0, null));
-            } else {
-                out.add(new FindingDTO(Severity.PASSED, LOGICAL_STRUCTURE_SYNTAX, 0, null));
+                error = "Structure element role is not standard or mapped";
             }
 
             // 2) Validate /K content references (syntax only)
-            PdfObject k = se.get(PdfName.K);
-            if (k == null) return;
-
-            if (k.isNumber()) {
-                // MCID number requires /Pg on the same StructElem (ISO 32000-2, 28.9.3)
-                if (se.getAsDictionary(PdfName.Pg) == null) {
-                    out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, 0, null));
-                } else {
-                    out.add(new FindingDTO(Severity.PASSED, LOGICAL_STRUCTURE_SYNTAX, 0, null));
-                }
-            } else if (k.isDictionary()) {
-                checkMcrOrObjr((PdfDictionary) k, out);
-            } else if (k.isArray()) {
-                PdfArray arr = (PdfArray) k;
-                for (int i = 0; i < arr.size(); i++) {
-                    PdfObject item = arr.get(i);
-                    if (item == null) continue;
-                    if (item.isNumber()) {
+            if (error == null) {
+                PdfObject k = se.get(PdfName.K);
+                if (k != null) {
+                    if (k.isNumber()) {
                         if (se.getAsDictionary(PdfName.Pg) == null) {
-                            out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, 0, null));
+                            error = "MCID reference without /Pg on structure element";
                         }
-                    } else if (item.isDictionary()) {
-                        checkMcrOrObjr((PdfDictionary) item, out);
-                    } // other types are illegal
+                    } else if (k.isDictionary()) {
+                        error = checkMcrOrObjr((PdfDictionary) k);
+                    } else if (k.isArray()) {
+                        PdfArray arr = (PdfArray) k;
+                        for (int i = 0; i < arr.size() && error == null; i++) {
+                            PdfObject item = arr.get(i);
+                            if (item == null) continue;
+                            if (item.isNumber()) {
+                                if (se.getAsDictionary(PdfName.Pg) == null) {
+                                    error = "MCID reference without /Pg on structure element";
+                                }
+                            } else if (item.isDictionary()) {
+                                error = checkMcrOrObjr((PdfDictionary) item);
+                            }
+                        }
+                    } else {
+                        error = "Structure element /K has unexpected type";
+                    }
                 }
+            }
+
+            if (error != null) {
+                out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, page, null, error));
             } else {
-                out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, 0, null));
+                out.add(new FindingDTO(Severity.PASSED, LOGICAL_STRUCTURE_SYNTAX, page, null));
             }
         });
         return out;
@@ -90,22 +92,22 @@ public class ValidateLogicalStructureSyntax implements Rule {
         return mapped != null && STD_ROLES.contains(mapped.getValue());
     }
 
-    private static void checkMcrOrObjr(PdfDictionary d, List<FindingDTO> out) {
+    private static String checkMcrOrObjr(PdfDictionary d) {
         PdfName type = d.getAsName(PdfName.Type);
         if (new PdfName("MCR").equals(type)) {
             if (d.getAsNumber(new PdfName("MCID")) == null || d.getAsDictionary(PdfName.Pg) == null) {
-                out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, 0, null));
-            } else {
-                out.add(new FindingDTO(Severity.PASSED, LOGICAL_STRUCTURE_SYNTAX, 0, null));
+                return "MCR is missing /MCID or /Pg";
             }
+            return null;
         } else if (PdfName.OBJR.equals(type)) {
             if (d.get(PdfName.Obj) == null) {
-                out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, 0, null));
-            } else {
-                out.add(new FindingDTO(Severity.PASSED, LOGICAL_STRUCTURE_SYNTAX, 0, null));
+                return "OBJR is missing /Obj";
             }
-        } else {
-            out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, 0, null));
+            return null;
         }
+        // Either an untyped child struct element (legal — /K may contain nested StructElems)
+        // or an explicitly typed StructElem dictionary. Both are valid here.
+        if (type == null || new PdfName("StructElem").equals(type)) return null;
+        return "Dictionary in /K is not an MCR or OBJR";
     }
 }

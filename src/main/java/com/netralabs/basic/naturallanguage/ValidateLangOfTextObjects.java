@@ -4,7 +4,6 @@ import com.itextpdf.kernel.pdf.*;
 import com.itextpdf.kernel.pdf.canvas.parser.PdfCanvasProcessor;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
-import com.netralabs.domain.Phase;
 
 import com.netralabs.report.FindingDTO;
 
@@ -16,9 +15,6 @@ import static com.netralabs.basic.naturallanguage.LangUtils.docLang;
 public class ValidateLangOfTextObjects implements Rule {
 
 
-
-    @Override
-    public EnumSet<Phase> phases() { return EnumSet.of(Phase.DOCUMENT); }
 
     @Override
     public List<FindingDTO> run(Context ctx) {

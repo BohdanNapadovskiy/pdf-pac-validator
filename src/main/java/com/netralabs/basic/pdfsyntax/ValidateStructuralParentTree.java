@@ -3,7 +3,6 @@ package com.netralabs.basic.pdfsyntax;
 import com.itextpdf.kernel.pdf.*;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
 
@@ -16,11 +15,6 @@ import static com.netralabs.domain.PDFUACheckpoint.STRUCTURE_PARENT_TREE;
 public class ValidateStructuralParentTree implements Rule {
 
     @Override
-    public EnumSet<Phase> phases() {
-        return EnumSet.of(Phase.DOCUMENT);
-    }
-
-    @Override
     public List<FindingDTO> run(Context ctx) {
         List<FindingDTO> out = new ArrayList<>();
         PdfDocument pdf = ctx.pdf();
@@ -29,25 +23,34 @@ public class ValidateStructuralParentTree implements Rule {
 
         PdfDictionary parentTree = str.getAsDictionary(new PdfName("ParentTree"));
         if (parentTree == null) {
-            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null));
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null, "StructTreeRoot /ParentTree missing"));
             return out;
         }
         if (parentTree.getAsArray(PdfName.Nums) == null && parentTree.getAsArray(PdfName.Kids) == null) {
-            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null));
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null, "/ParentTree has no /Nums or /Kids"));
             return out;
-        } else {
-            out.add(new FindingDTO(Severity.PASSED, STRUCTURE_PARENT_TREE, 0, null));
         }
+        // Passes for the PDF Syntax subcategory are emitted by ValidateLogicalStructureSyntax;
+        // this rule contributes errors only to avoid duplicating per-element passes.
 
         // Build quick map of ParentTree Nums (flat only; Kids trees are expanded lazily)
         Map<Integer, PdfObject> nums = new HashMap<>();
         collectNums(parentTree, nums);
 
-        // For each StructElem MCR, verify there is a matching ParentTree entry
+        // Errors only: collect findings per element and keep just the worst (ERROR if any).
         walkStructure(pdf, (parent, se) -> {
             PdfObject k = se.get(PdfName.K);
             if (k == null) return;
-            checkK(k, se, nums, out);
+
+            List<FindingDTO> elemFindings = new ArrayList<>();
+            checkK(pdf, k, se, nums, elemFindings);
+
+            for (FindingDTO f : elemFindings) {
+                if (f.getSeverity() == Severity.ERROR) {
+                    out.add(f);
+                    return;
+                }
+            }
         });
 
         return out;
@@ -71,11 +74,11 @@ public class ValidateStructuralParentTree implements Rule {
         }
     }
 
-    private static void checkK(PdfObject k, PdfDictionary se, Map<Integer, PdfObject> nums, List<FindingDTO> out) {
+    private static void checkK(PdfDocument pdf, PdfObject k, PdfDictionary se, Map<Integer, PdfObject> nums, List<FindingDTO> out) {
         if (k.isDictionary()) {
             PdfDictionary d = (PdfDictionary) k;
             if (new PdfName("MCR").equals(d.getAsName(PdfName.Type))) {
-                verifyMcrInParentTree(d, se, nums, out);
+                verifyMcrInParentTree(pdf, d, se, nums, out);
             }
         } else if (k.isArray()) {
             PdfArray arr = (PdfArray) k;
@@ -84,7 +87,7 @@ public class ValidateStructuralParentTree implements Rule {
                 if (item != null && item.isDictionary()) {
                     PdfDictionary d = (PdfDictionary) item;
                     if (new PdfName("MCR").equals(d.getAsName(PdfName.Type))) {
-                        verifyMcrInParentTree(d, se, nums, out);
+                        verifyMcrInParentTree(pdf, d, se, nums, out);
                     }
                 }
             }
@@ -95,33 +98,39 @@ public class ValidateStructuralParentTree implements Rule {
                 PdfDictionary mcr = new PdfDictionary();
                 mcr.put(new PdfName("MCID"), (PdfNumber) k);
                 mcr.put(PdfName.Pg, pg);
-                verifyMcrInParentTree(mcr, se, nums, out);
+                verifyMcrInParentTree(pdf, mcr, se, nums, out);
             }
         }
     }
 
-    private static void verifyMcrInParentTree(PdfDictionary mcr, PdfDictionary se,
+    private static void verifyMcrInParentTree(PdfDocument pdf, PdfDictionary mcr, PdfDictionary se,
                                               Map<Integer, PdfObject> nums, List<FindingDTO> out) {
         PdfDictionary pg = mcr.getAsDictionary(PdfName.Pg);
         PdfNumber mcid = mcr.getAsNumber(new PdfName("MCID"));
         if (pg == null || mcid == null) return; // syntax check handled elsewhere
 
+        int page = 0;
+        try {
+            com.itextpdf.kernel.pdf.PdfPage pp = pdf.getPage(pg);
+            if (pp != null) page = pdf.getPageNumber(pp);
+        } catch (Exception ignored) {}
+
         PdfNumber sp = pg.getAsNumber(new PdfName("StructParents"));
         if (sp == null) {
-            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null));
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, page, null, "Page is missing /StructParents"));
             return;
         }
 
         PdfObject ptVal = nums.get(sp.intValue());
         if (ptVal == null) {
-            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null));
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, page, null, "ParentTree has no entry for /StructParents key"));
             return;
         }
 
         // ParentTree value should be an array; one item per parented object
         PdfArray arr = ptVal.isArray() ? (PdfArray) ptVal : null;
         if (arr == null) {
-            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null));
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, page, null, "ParentTree entry is not an array"));
             return;
         }
 
@@ -154,9 +163,9 @@ public class ValidateStructuralParentTree implements Rule {
         }
 
         if (found) {
-            out.add(new FindingDTO(Severity.PASSED, STRUCTURE_PARENT_TREE, 0, null));
+            out.add(new FindingDTO(Severity.PASSED, STRUCTURE_PARENT_TREE, page, null));
         } else {
-            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null));
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, page, null, "ParentTree entry does not reference this structure element"));
         }
     }
 }

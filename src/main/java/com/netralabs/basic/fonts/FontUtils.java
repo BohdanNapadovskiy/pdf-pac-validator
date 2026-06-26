@@ -9,6 +9,27 @@ import java.util.function.BiConsumer;
 public class FontUtils {
     private FontUtils() {}
 
+    /** Visitor signature for {@link #forEachUniqueFont}: (resourceName, font, firstSeenPage). */
+    @FunctionalInterface
+    public interface FontVisitor {
+        void accept(PdfName name, PdfDictionary font, int firstSeenPage);
+    }
+
+    /**
+     * Visit each unique font in the document exactly once, passing the page number where
+     * it first appeared. PAC-style font checkpoints expect document-wide dedup; iterating
+     * per page and counting only on the first occurrence achieves the same shape.
+     */
+    public static void forEachUniqueFont(PdfDocument pdf, FontVisitor visitor) {
+        Set<Integer> seen = new HashSet<>();
+        for (int p = 1; p <= pdf.getNumberOfPages(); p++) {
+            int page = p;
+            PdfDictionary res = pdf.getPage(p).getResources().getPdfObject();
+            if (res == null) continue;
+            visitResources(res, seen, (name, font) -> visitor.accept(name, font, page));
+        }
+    }
+
     public static void forEachFontOnPage(PdfDocument pdf, int page,
                                          BiConsumer<PdfName, PdfDictionary> visitor) {
         PdfDictionary res = pdf.getPage(page).getResources().getPdfObject();

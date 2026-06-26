@@ -10,12 +10,10 @@ import com.itextpdf.kernel.pdf.tagging.PdfStructTreeRoot;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
 import com.netralabs.domain.PDFUACheckpoint;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 
 import static com.netralabs.basic.naturallanguage.ActualTextHelper.*;
@@ -23,9 +21,6 @@ import static com.netralabs.basic.naturallanguage.LangUtils.*;
 import static com.netralabs.domain.PDFUACheckpoint.NATURAL_LANGUAGE_EXPANSION_TEXT;
 
 public class ValidateLangOfExpansionText implements Rule {
-
-    @Override
-    public EnumSet<Phase> phases(){ return EnumSet.of(Phase.DOCUMENT); }
 
     @Override
     public List<FindingDTO> run(Context ctx) {

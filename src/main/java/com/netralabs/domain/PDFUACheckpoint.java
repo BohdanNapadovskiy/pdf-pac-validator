@@ -9,6 +9,8 @@ import com.netralabs.basic.pdfsyntax.CorePdfSyntaxCheck;
 import com.netralabs.basic.pdfsyntax.ValidateLogicalStructureSyntax;
 import com.netralabs.basic.pdfsyntax.ValidateParentsOfStructureElements;
 import com.netralabs.basic.pdfsyntax.ValidateStructuralParentTree;
+import com.netralabs.logicalstructure.structureelements.StructElementByRoleRule;
+import com.netralabs.logicalstructure.structureelements.figures.ValidateFigureBoundingBox;
 import com.netralabs.logicalstructure.structureelements.headings.ValidateFirstHeadingLevel;
 import com.netralabs.logicalstructure.structureelements.headings.ValidateHeadingInsideStructureNode;
 import com.netralabs.logicalstructure.structureelements.headings.ValidateNestingOfHeadingLevels;
@@ -35,7 +37,7 @@ public enum PDFUACheckpoint {
     PDF_SYNTAX(
             "PDF/UA",
             "Basic requirements",
-            "PDF syntax (ISO 32000-1)",
+            "PDF Syntax (ISO 32000-1)",
             "PDF syntax",
             "PDF syntax is not valid",
             CorePdfSyntaxCheck::new,
@@ -44,8 +46,8 @@ public enum PDFUACheckpoint {
     PARENTS_OF_STRUCTURE_ELEMENTS(
             "PDF/UA",
             "Basic requirements",
-            "PDF syntax (ISO 32000-1)",
-            "Parent of structure elements",
+            "PDF Syntax (ISO 32000-1)",
+            "Parents of structure elements",
             "",
             ValidateParentsOfStructureElements::new,
             Phase.DOCUMENT
@@ -53,7 +55,7 @@ public enum PDFUACheckpoint {
     LOGICAL_STRUCTURE_SYNTAX(
             "PDF/UA",
             "Basic requirements",
-            "PDF syntax (ISO 32000-1)",
+            "PDF Syntax (ISO 32000-1)",
             "Logical structure syntax",
             "",
             ValidateLogicalStructureSyntax::new,
@@ -62,8 +64,8 @@ public enum PDFUACheckpoint {
     STRUCTURE_PARENT_TREE(
             "PDF/UA",
             "Basic requirements",
-            "PDF syntax (ISO 32000-1)",
-            "Structure parent tree",
+            "PDF Syntax (ISO 32000-1)",
+            "Structural parent tree",
             "",
             ValidateStructuralParentTree::new,
             Phase.DOCUMENT
@@ -74,7 +76,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Fonts",
-            "Registry entries in Type 0",
+            "\"Registry\" entries in Type 0 fonts",
             "",
             ValidateCIDSystemInfoRegistry::new,
             Phase.DOCUMENT
@@ -83,7 +85,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Fonts",
-            "Ordering entries in Type 0",
+            "\"Ordering\" entries in Type 0 fonts",
             "",
             ValidateCIDSystemInfoOrdering::new,
             Phase.DOCUMENT
@@ -92,7 +94,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Fonts",
-            "Supplement entries in Type 0",
+            "\"Supplement\" entries in Type 0 fonts",
             "",
             ValidateCIDSystemInfoSupplement::new,
             Phase.DOCUMENT
@@ -101,7 +103,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Fonts",
-            "CID to GID mapping of Type 2 CID fonts",
+            "\"CID\" to \"GID\" mapping of Type 2 CID fonts",
             "",
             ValidateCidToGidMapForType2::new,
             Phase.DOCUMENT
@@ -119,7 +121,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Fonts",
-            "WMode entry in CMap definition and CMap data",
+            "\"WMode\" entry in CMap definition and CMap data",
             "",
             ValidateCMapWMode::new,
             Phase.DOCUMENT
@@ -137,7 +139,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Fonts",
-            "Fonts embedding",
+            "Font embedding",
             "",
             ValidateFontsEmbedding::new,
             Phase.DOCUMENT
@@ -146,7 +148,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Fonts",
-            "Encoding entry is non-symbolic TrueType font",
+            "Encoding entry in non-symbolic TrueType font",
             "",
             ValidateTTNonSymbolicEncoding::new,
             Phase.DOCUMENT
@@ -164,7 +166,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Fonts",
-            "Glyph names is non-symbolic TrueType font",
+            "Glyph names in non-symbolic TrueType font",
             "",
             ValidateTTNonSymbolicGlyphNames::new,
             Phase.DOCUMENT
@@ -184,7 +186,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Content",
-            "Artifact inside tagged content",
+            "Artifacts inside tagged content",
             "",
             ValidateArtifactsInsideTagged::new,
             Phase.DOCUMENT
@@ -193,7 +195,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Content",
-            "Tagged content inside artifact",
+            "Tagged content inside artifacts",
             "",
             ValidateTaggedInsideArtifacts::new,
             Phase.DOCUMENT
@@ -202,7 +204,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Content",
-            "Mapping of character to Unicode",
+            "Mapping of characters to Unicode",
             "",
             ValidateUnicodeMapping::new,
             Phase.DOCUMENT
@@ -211,7 +213,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Content",
-            "Referenced external object",
+            "Referenced external objects",
             "",
             ValidateReferencedExternalObjects::new,
             null
@@ -220,7 +222,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Content",
-            "Optional content",
+            "Name entry in OCCDs (optional content configuration dictionaries)",
             "Name entry in OCCDs",
             ValidateOCConfigName::new,
             Phase.DOCUMENT
@@ -229,7 +231,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Content",
-            "Optional content",
+            "AS entry in OCCDs (optional content configuration dictionaries)",
             "AS entry in OCCDs",
             ValidateOCConfigAS::new,
             Phase.DOCUMENT
@@ -238,8 +240,8 @@ public enum PDFUACheckpoint {
     F_UF_FILE_SPECIFICATION(
             "PDF/UA",
             "Basic requirements",
-            "Embedded files",
-            "Glyph names is non-symbolic TrueType font",
+            "Embedded Files",
+            "\"F\" and \"UF\" entries in file specifications",
             "",
             ValidateFileSpecFAndUF::new,
             Phase.DOCUMENT
@@ -248,7 +250,7 @@ public enum PDFUACheckpoint {
     CORRECTNESS_LANGUAGE_ATR(
             "PDF/UA",
             "Basic requirements",
-            "Natural Language",
+            "Natural language",
             "Correctness of language attribute",
             "Document language metadata contains the syntax error",
             ValidateLangAttributeCorrectness::new,
@@ -257,8 +259,8 @@ public enum PDFUACheckpoint {
     NATURAL_LANGUAGE_TEXT_OBJECT(
             "PDF/UA",
             "Basic requirements",
-            "Natural Language",
-            "Natural language text object",
+            "Natural language",
+            "Natural language of text objects",
             "Natural language cannot be determined",
             ValidateLangOfTextObjects::new,
             Phase.DOCUMENT
@@ -266,7 +268,7 @@ public enum PDFUACheckpoint {
     NATURAL_LANGUAGE_ALTERNATIVE_TEXT(
             "PDF/UA",
             "Basic requirements",
-            "Natural Language",
+            "Natural language",
             "Natural language of alternative text",
             "Natural language of alternative text cannot be determined",
             ValidateLangOfAltText::new,
@@ -275,7 +277,7 @@ public enum PDFUACheckpoint {
     NATURAL_LANGUAGE_ACTUAL_TEXT(
             "PDF/UA",
             "Basic requirements",
-            "Natural Language",
+            "Natural language",
             "Natural language of actual text",
             "Natural language of actual text cannot be determined",
             ValidateLangOfActualText::new,
@@ -284,7 +286,7 @@ public enum PDFUACheckpoint {
     NATURAL_LANGUAGE_EXPANSION_TEXT(
             "PDF/UA",
             "Basic requirements",
-            "Natural Language",
+            "Natural language",
             "Natural language of expansion text",
             "Natural language of expansion text cannot be determined",
             ValidateLangOfExpansionText::new,
@@ -293,8 +295,8 @@ public enum PDFUACheckpoint {
     NATURAL_LANGUAGE_BOOKMARK(
             "PDF/UA",
             "Basic requirements",
-            "Natural Language",
-            "Natural language of bookmark",
+            "Natural language",
+            "Natural language of bookmarks (document outline)",
             "Natural language of bookmark cannot be determined",
             ValidateLangOfBookmarks::new,
             Phase.DOCUMENT
@@ -302,8 +304,8 @@ public enum PDFUACheckpoint {
     NATURAL_LANGUAGE_CONTENTS(
             "PDF/UA",
             "Basic requirements",
-            "Natural Language",
-            "Natural language of 'Contents' entries in annotation",
+            "Natural language",
+            "Natural language of \"Contents\" entries in annotations",
             "",
             ValidateLangOfAnnotationContents::new,
             Phase.DOCUMENT
@@ -311,8 +313,8 @@ public enum PDFUACheckpoint {
     NATURAL_LANGUAGE_ALTERNATE_NAMES_FORM_FIELD(
             "PDF/UA",
             "Basic requirements",
-            "Natural Language",
-            "Natural language of alternate names in form field",
+            "Natural language",
+            "Natural language of alternate names of form fields",
             "",
             ValidateLangOfFormFieldAltNames::new,
             Phase.DOCUMENT
@@ -322,8 +324,9 @@ public enum PDFUACheckpoint {
     USE_OF_EITHER(
             "PDF/UA",
             "Logical Structure",
+            "Structure Elements",
             "Headings",
-            "Use of either 'H' or Hn structure elements",
+            "Use of either \"H\" or \"Hn\" structure elements",
             "",
             ValidateUseOfEitherHOrHn::new,
             Phase.DOCUMENT
@@ -331,6 +334,7 @@ public enum PDFUACheckpoint {
     FIRST_HEADING_LEVEL(
             "PDF/UA",
             "Logical Structure",
+            "Structure Elements",
             "Headings",
             "First heading level",
             "",
@@ -340,6 +344,7 @@ public enum PDFUACheckpoint {
     NESTING_HEADING_LEVEL(
             "PDF/UA",
             "Logical Structure",
+            "Structure Elements",
             "Headings",
             "Nesting of heading levels",
             "",
@@ -349,8 +354,9 @@ public enum PDFUACheckpoint {
     H_STRUCTURE_ELEMENTS_WITHIN(
             "PDF/UA",
             "Logical Structure",
+            "Structure Elements",
             "Headings",
-            "'H' structure elements within a structure node",
+            "\"H\" structure elements within a structure node",
             "",
             ValidateHeadingInsideStructureNode::new,
             Phase.DOCUMENT
@@ -358,8 +364,9 @@ public enum PDFUACheckpoint {
     ID_NOTE(
             "PDF/UA",
             "Logical Structure",
+            "Structure Elements",
             "Notes",
-            "IDs of 'Note' structure element",
+            "IDs of \"Note\" structure elements",
             "ID missing in Note structure element",
             ValidateNoteIdPresence::new,
             Phase.DOCUMENT
@@ -367,8 +374,9 @@ public enum PDFUACheckpoint {
     UNIQUE_ID_ENTRIES(
             "PDF/UA",
             "Logical Structure",
+            "Structure Elements",
             "Notes",
-            "Unique 'ID' entries in Note structure element",
+            "Unique \"ID\" entries in Note structure elements",
             "",
             ValidateNoteIdUniqueness::new,
             Phase.DOCUMENT
@@ -376,8 +384,9 @@ public enum PDFUACheckpoint {
     TRAP_NET_ANNOTATIONS(
             "PDF/UA",
             "Logical Structure",
-            "Annotation",
-            "'TrapNet' annotations",
+            "Structure Elements",
+            "Annotations",
+            "\"TrapNet\" annotations",
             "",
             null,
             null
@@ -385,8 +394,9 @@ public enum PDFUACheckpoint {
     NESTING_WIDGET_ANNOTATIONS(
             "PDF/UA",
             "Logical Structure",
-            "Annotation",
-            "Nesting of 'Widget' annotations inside a 'Form' structure elements",
+            "Structure Elements",
+            "Annotations",
+            "Nesting of \"Widget\" annotations inside a \"Form\" structure elements",
             "",
             null,
             null
@@ -394,8 +404,9 @@ public enum PDFUACheckpoint {
     NESTING_LINK_ANNOTATIONS(
             "PDF/UA",
             "Logical Structure",
-            "Annotation",
-            "Nesting of 'Link' annotations inside 'Link' structure elements ",
+            "Structure Elements",
+            "Annotations",
+            "Nesting of \"Link\" annotations inside \"Link\" structure elements",
             "",
             null,
             null
@@ -403,30 +414,32 @@ public enum PDFUACheckpoint {
     NESTING_ANNOTATIONS_ANNOT(
             "PDF/UA",
             "Logical Structure",
-            "Annotation",
+            "Structure Elements",
+            "Annotations",
             "Nesting of annotations in Annot structure elements",
             "",
             null,
             null
     ),
     PRINTER_MARK_ANNOTATIONS(
-            "PDF/UA", "Logical Structure", "Annotation", "'PrinterMark' annotations", "",
+            "PDF/UA", "Logical Structure", "Structure Elements", "Annotations", "\"PrinterMark\" annotations", "",
             null,
             null
     ),
     BOUNDED_BOXES(
-            "PDF/UA", "Logical Structure", "Figure", "Bounding boxes", "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure Elements", "Figures", "Bounding boxes", "",
+            ValidateFigureBoundingBox::new,
+            Phase.DOCUMENT
     ),
     TABLE_REGULARITY(
-            "PDF/UA", "Logical Structure", "Tables", "Table regularity", "Irregular table row",
+            "PDF/UA", "Logical Structure", "Structure Elements", "Tables", "Table regularity", "Irregular table row",
             null,
             null
     ),
     TABLE_HEADER_CELL_ASSIGNMENTS(
             "PDF/UA",
             "Logical Structure",
+            "Structure Elements",
             "Tables",
             "Tables header cell assignments",
             "Table Header Cell Has No Associated Sub Cells",
@@ -436,479 +449,240 @@ public enum PDFUACheckpoint {
 
 
     DOCUMENT_STRUCTURE_ELEMENT(
-            "PDF/UA", "Logical Structure", "Structure tree", "'Document' structure elements", "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Document\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     PART_STRUCTURE_ELEMENT(
-            "PDF/UA", "Logical Structure", "Structure tree", "'Part' structure elements", "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Part\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     ART_STRUCTURE_ELEMENT(
-            "PDF/UA", "Logical Structure", "Structure tree", "'Art' structure elements", "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Art\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     SECT_STRUCTURE_ELEMENT(
-            "PDF/UA", "Logical Structure", "Structure tree", "'Sect' structure elements", "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Sect\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     DIV_STRUCTURE_ELEMENT(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Div' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Div\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     BLOCKQUOTE_STRUCTURE_ELEMENT(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'BlockQuote' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"BlockQuote\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     CAPTION_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Caption' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Caption\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     TOC_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'TOC' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"TOC\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     TOCI_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'TOCI' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"TOCI\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     INDEX_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "Index structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Index\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     PRIVATE_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Private' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Private\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     H_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'H' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"H\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     H1_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'H1' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"H1\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     H2_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'H2' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"H2\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     H3_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'H3' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"H3\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     H4_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'H4' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"H4\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     H5_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'H5' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"H5\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     H6_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure", "Structure tree", "'H6' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"H6\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     P_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'P' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"P\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     L_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'L' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"L\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     LI_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'LI' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"LI\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     Lbl_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Lbl' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Lbl\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     LBODY_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'LBody' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"LBody\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     TABLE_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Table' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Table\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     TR_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'TR' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"TR\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     TH_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'TH' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"TH\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     TD_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'TD' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"TD\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     THEAD_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'THead' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"THead\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     TBODY_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'TBody' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"TBody\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     TFOOT_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'TFoot' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"TFoot\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     SPAN_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Span' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Span\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     QUOTE_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Quote' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Quote\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     NOTE_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Note' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Note\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     REFERENCE_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Reference' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Reference\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     BIBENTRY_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'BibEntry' structure elements'",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"BibEntry\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     CODE_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Code' structure elements",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Code\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     LINK_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Link' structure elements",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Link\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     ANNOT_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Annot' structure elements",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Annot\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     RUBY_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Ruby' structure elements",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Ruby\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     RB_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'RB' structure elements",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"RB\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     RT_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'RT' structure elements",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"RT\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     RP_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'RP' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"RP\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     WARICHU_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Warichu' structure elements",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Warichu\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     WP_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'WP' structure elements",
-            "",
-            null,
-            null
-
+            "PDF/UA", "Logical Structure", "Structure tree", "\"WP\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     WT_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'WT' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"WT\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     FIGURE_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Figure' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Figure\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     FORMULA_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Formula' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Formula\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     FORM_STRUCTURE_ELEMENTS(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "'Form' structure elements",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "\"Form\" structure elements", "",
+            StructElementByRoleRule::new, Phase.DOCUMENT
     ),
     CONTENT_PRESENT(
-            "PDF/UA",
-            "Logical Structure",
-            "Structure tree",
-            "Content is present in admissible location",
-            "",
-            null,
-            null
+            "PDF/UA", "Logical Structure", "Structure tree", "Content is present in admissible locations", "",
+            null, null
     ),
 
     ROLE_MAPPING_FOR_STANDARD_STRUCTURE(
             "PDF/UA",
             "Logical Structure",
             "Role mapping",
-            "Role mapping for standard structure elements",
+            "Role mapping for standard structure types",
             "",
-            null,
-            null
+            com.netralabs.logicalstructure.rolemapping.RoleMapValidatorRule::new,
+            Phase.DOCUMENT
     ),
     ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE(
             "PDF/UA",
             "Logical Structure",
             "Role mapping",
-            "Role mapping for non-standard structure elements",
+            "Role mapping of non-standard structure types",
             "",
-            null,
-            null
+            com.netralabs.logicalstructure.rolemapping.RoleMapValidatorRule::new,
+            Phase.DOCUMENT
     ),
     CIRCULAR_ROLE_MAPPING(
             "PDF/UA", "Logical Structure", "Role mapping", "Circular role mapping", "",
-            null,
-            null
+            com.netralabs.logicalstructure.rolemapping.RoleMapValidatorRule::new,
+            Phase.DOCUMENT
     ),
 
     ALTERNATIVE_TEXT_FOR_FIGURE(
             "PDF/UA",
             "Logical Structure",
             "Alternative Descriptions",
-            "Alternative Descriptions for 'Figure' structure elements",
+            "Alternative text for \"Figure\" structure elements",
             "",
-            null,
-            null
-//      AltTextForFigureRule::new,
-//      Phase.STRUCT
-
+            com.netralabs.logicalstructure.alternativedescriptions.AltTextForFigureRule::new,
+            Phase.DOCUMENT
     ),
     ALTERNATIVE_TEXT_FOR_FORMULA(
             "PDF/UA",
             "Logical Structure",
             "Alternative Descriptions",
-            "Alternative Descriptions for 'Formula' structure elements",
+            "Alternative text for \"Formula\" structure elements",
             "",
             null,
             null
@@ -918,7 +692,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Logical Structure",
             "Alternative Descriptions",
-            "Alternative Descriptions for form fields",
+            "Alternate names for form fields",
             "",
             null,
             null
@@ -927,7 +701,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Logical Structure",
             "Alternative Descriptions",
-            "Alternative Descriptions for annotations",
+            "Alternative description for annotations",
             "",
             null,
             null
@@ -990,7 +764,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Metadata and Settings",
             "Document settings",
-            "Security settings and documents access by assistive technologies",
+            "Security settings and document access by assistive technologies",
             "",
             SecuritySettingIdentifier::new,
             Phase.DOCUMENT
@@ -1001,7 +775,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Metadata and Settings",
             "Document settings",
-            "Tab order fro pages with annotations",
+            "Tab order for pages with annotations",
             "",
             TabOrderByPageIdentifier::new,
             Phase.PAGE
@@ -1012,6 +786,7 @@ public enum PDFUACheckpoint {
     private final String reportName;
     private final String category;
     private final String subCategory;
+    private final String group;
     private final String element;
     private final String errorMessage;
     private final Supplier<? extends Rule> factory;
@@ -1026,10 +801,24 @@ public enum PDFUACheckpoint {
             Supplier<? extends Rule> f, Phase firstPhase, Phase... more
 
     ) {
+        this(reportName, category, subCategory, null, element, errorMessage, f, firstPhase, more);
+    }
+
+    PDFUACheckpoint(
+            String reportName,
+            String category,
+            String subCategory,
+            String group,
+            String element,
+            String errorMessage,
+            Supplier<? extends Rule> f, Phase firstPhase, Phase... more
+
+    ) {
 
         this.reportName = reportName;
         this.category = category;
         this.subCategory = subCategory;
+        this.group = group;
         this.element = element;
         this.errorMessage = errorMessage;
         this.factory = f;

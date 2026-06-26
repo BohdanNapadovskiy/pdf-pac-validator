@@ -7,7 +7,6 @@ import com.itextpdf.kernel.pdf.tagging.PdfStructTreeRoot;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
 import com.netralabs.domain.PDFUACheckpoint;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
 
@@ -15,11 +14,6 @@ import java.util.*;
 import static com.netralabs.basic.naturallanguage.ActualTextHelper.*;
 
 public class ValidateLangOfActualText implements Rule {
-
-    @Override
-    public EnumSet<Phase> phases() {
-        return EnumSet.of(Phase.DOCUMENT);
-    }
 
     @Override
     public List<FindingDTO> run(Context ctx) {

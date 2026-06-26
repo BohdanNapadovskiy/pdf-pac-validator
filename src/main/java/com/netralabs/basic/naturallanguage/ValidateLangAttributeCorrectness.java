@@ -8,7 +8,6 @@ import com.itextpdf.kernel.xmp.XMPMetaFactory;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
 import com.netralabs.domain.PDFUACheckpoint;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
 
@@ -20,9 +19,6 @@ import static com.netralabs.basic.naturallanguage.LangUtils.*;
 import static com.netralabs.domain.PDFUACheckpoint.CORRECTNESS_LANGUAGE_ATR;
 
 public class ValidateLangAttributeCorrectness implements Rule {
-    @Override
-    public EnumSet<Phase> phases(){ return EnumSet.of(Phase.DOCUMENT); }
-
     @Override
     public List<FindingDTO> run(Context ctx) {
         List<FindingDTO> out = new ArrayList<>();

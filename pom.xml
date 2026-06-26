@@ -70,6 +70,16 @@
       <artifactId>pdfua</artifactId>
       <version>9.0.0</version>
     </dependency>
+    <dependency>
+      <groupId>org.verapdf</groupId>
+      <artifactId>validation-model-jakarta</artifactId>
+      <version>1.28.2</version>
+    </dependency>
+    <dependency>
+      <groupId>org.verapdf</groupId>
+      <artifactId>pdf-model</artifactId>
+      <version>1.28.2</version>
+    </dependency>
   </dependencies>
 
   <build>

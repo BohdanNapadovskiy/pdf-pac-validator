@@ -1,7 +1,6 @@
 package com.netralabs.utils;
 
 import com.itextpdf.kernel.pdf.*;
-import org.verapdf.pdfa.results.ValidationResult;
 
 import java.util.HashSet;
 import java.util.List;
@@ -28,7 +27,7 @@ public class PdfStructUtils {
 
     /** Add child StructElem dictionaries from /K to 'out'. */
     public static void collectStructKids(PdfDictionary parent, List<PdfDictionary> out,
-                                         ValidationResult res, String rule, String parentPath) {
+                                         String rule, String parentPath) {
         PdfObject k = parent.get(PdfName.K);
         if (k == null) return;
 
@@ -36,20 +35,18 @@ public class PdfStructUtils {
             PdfArray arr = (PdfArray) k;
             for (int i = 0; i < arr.size(); i++) {
                 PdfObject kid = arr.get(i, true);
-                inspectStructKid(kid, out, res, rule, parentPath + "/K[" + i + "]");
+                inspectStructKid(kid, out, rule, parentPath + "/K[" + i + "]");
             }
         } else {
-            inspectStructKid(k, out, res, rule, parentPath + "/K");
+            inspectStructKid(k, out, rule, parentPath + "/K");
         }
     }
 
     private static void inspectStructKid(PdfObject kid, List<PdfDictionary> out,
-                                         ValidationResult res, String rule, String path) {
+                                         String rule, String path) {
         if (kid.isDictionary()) {
             PdfDictionary kd = (PdfDictionary) kid;
             if (isStructElemLike(kd)) out.add(kd);
-        } else if (!(kid.isArray() || kid.isNumber())) {
-//            res.error(rule, "Unsupported /K kid type: " + kid.getClass().getSimpleName() + " at " + path);
         }
     }
 
@@ -132,15 +129,13 @@ public class PdfStructUtils {
         return keys;
     }
 
-    public static void checkParentTreeValueObject(PdfObject o, int key, ValidationResult out, String rule) {
+    public static void checkParentTreeValueObject(PdfObject o, int key, String rule) {
         if (o.isDictionary()) {
             PdfDictionary d = (PdfDictionary) o;
             PdfName t = d.getAsName(PdfName.Type);
             if (!(PdfName.MCR.equals(t) || PdfName.OBJR.equals(t) || isStructElemLike(d))) {
-//                out.error(rule, "Key " + key + " maps to dict with unexpected /Type=" + t);
+                // unexpected /Type at this key — diagnostic hook removed pending reporter wiring
             }
-        } else if (!o.isIndirectReference()) {
-//            out.error(rule, "Key " + key + " maps to unexpected primitive: " + o.getClass().getSimpleName());
         }
     }
 }

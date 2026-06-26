@@ -19,33 +19,24 @@ public class StructUtils {
         PdfDictionary root = structTreeRoot(pdf);
         if (root == null) return;
 
-        // Root’s /K can be a dict (StructElem), array of kids, or null
+        // Push root's children onto the stack; the main loop is the single visit site.
         Deque<PdfDictionary> stack = new ArrayDeque<>();
-        // synthesize a parent holder for top-level (/P must be StructTreeRoot)
-        PdfDictionary parent = root;
+        pushKids(root, root.get(PdfName.K), stack);
 
-        // enqueue children of root
-        pushKids(pdf, parent, root.get(PdfName.K), stack, visitor);
-
-        // DFS
         while (!stack.isEmpty()) {
             PdfDictionary cur = stack.pop();
-            visitor.accept(parentOf(cur), cur); // we’ll set /_P cache in parentOf()
-            // descend
-            parent = cur;
-            pushKids(pdf, cur, cur.get(PdfName.K), stack, visitor);
+            visitor.accept(parentOf(cur), cur);
+            pushKids(cur, cur.get(PdfName.K), stack);
         }
     }
 
-    private static void pushKids(PdfDocument pdf, PdfDictionary parent, PdfObject k, Deque<PdfDictionary> stack,
-                                 BiConsumer<PdfDictionary, PdfDictionary> visitor) {
+    private static void pushKids(PdfDictionary parent, PdfObject k, Deque<PdfDictionary> stack) {
         if (k == null) return;
         if (k.isDictionary()) {
             PdfDictionary kid = (PdfDictionary) k;
             if (isStructElem(kid)) {
-                kid.put(new PdfName("_P"), parent.getIndirectReference()); // cache parent
+                kid.put(new PdfName("_P"), parent.getIndirectReference());
                 stack.push(kid);
-                visitor.accept(parent, kid);
             }
         } else if (k.isArray()) {
             PdfArray arr = (PdfArray) k;
@@ -56,7 +47,6 @@ public class StructUtils {
                     if (isStructElem(kid)) {
                         kid.put(new PdfName("_P"), parent.getIndirectReference());
                         stack.push(kid);
-                        visitor.accept(parent, kid);
                     }
                 }
             }
@@ -66,6 +56,40 @@ public class StructUtils {
     public static boolean isStructElem(PdfDictionary d) {
         PdfName type = d.getAsName(PdfName.Type);
         return PdfName.StructElem.equals(type) || d.containsKey(PdfName.S);
+    }
+
+    /**
+     * Resolve the 1-based page number associated with a structure element via its /Pg entry,
+     * or via the /Pg of an MCR child if the element itself has none. Returns 0 when no page
+     * can be derived (treated as null by the report layer).
+     */
+    public static int pageNumOf(PdfDocument pdf, PdfDictionary se) {
+        if (se == null) return 0;
+        int n = pageOfDict(pdf, se.getAsDictionary(PdfName.Pg));
+        if (n > 0) return n;
+        PdfObject k = se.get(PdfName.K);
+        if (k instanceof PdfDictionary kd) {
+            n = pageOfDict(pdf, kd.getAsDictionary(PdfName.Pg));
+            if (n > 0) return n;
+        } else if (k instanceof PdfArray arr) {
+            for (int i = 0; i < arr.size(); i++) {
+                PdfObject item = arr.get(i);
+                if (item instanceof PdfDictionary kd) {
+                    n = pageOfDict(pdf, kd.getAsDictionary(PdfName.Pg));
+                    if (n > 0) return n;
+                }
+            }
+        }
+        return 0;
+    }
+
+    private static int pageOfDict(PdfDocument pdf, PdfDictionary pg) {
+        if (pg == null) return 0;
+        try {
+            PdfPage page = pdf.getPage(pg);
+            if (page != null) return pdf.getPageNumber(page);
+        } catch (Exception ignored) {}
+        return 0;
     }
 
     /** Parent we cached in walk (/_P); falls back to /P if present. */

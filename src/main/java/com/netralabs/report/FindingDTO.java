@@ -15,5 +15,9 @@ public class FindingDTO {
   public PDFUACheckpoint checkpoint;
   public Integer page;
   public BBoxDTO bBox;
+  public String message;
 
+  public FindingDTO(Severity severity, PDFUACheckpoint checkpoint, Integer page, BBoxDTO bBox) {
+    this(severity, checkpoint, page, bBox, null);
+  }
 }

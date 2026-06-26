@@ -2,12 +2,10 @@ package com.netralabs.basic.content;
 
 import com.itextpdf.kernel.pdf.*;
 import com.netralabs.Rule;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -16,11 +14,6 @@ import static com.netralabs.domain.PDFUACheckpoint.AS_ENTRY_OCCD;
 public class ValidateOCConfigAS implements Rule {
 
     private static final Set<String> ALLOWED_EVENTS = Set.of("View", "Print", "Export");
-
-    @Override
-    public EnumSet<Phase> phases() {
-        return EnumSet.of(Phase.DOCUMENT);
-    }
 
     @Override
     public List<FindingDTO> run(Context ctx) {

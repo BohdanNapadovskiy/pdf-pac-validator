@@ -6,11 +6,9 @@ import com.itextpdf.kernel.pdf.*;
 import com.itextpdf.kernel.pdf.annot.PdfWidgetAnnotation;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
-import com.netralabs.domain.Phase;
 import com.netralabs.report.FindingDTO;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 
 import static com.netralabs.basic.naturallanguage.ActualTextHelper.*;
@@ -19,21 +17,16 @@ import static com.netralabs.domain.PDFUACheckpoint.NATURAL_LANGUAGE_ALTERNATE_NA
 
 public class ValidateLangOfFormFieldAltNames implements Rule {
     @Override
-    public EnumSet<Phase> phases(){ return EnumSet.of(Phase.DOCUMENT); }
-
-    @Override
     public List<FindingDTO> run(Context ctx) {
         List<FindingDTO> out = new ArrayList<>();
-        PdfDocument pdf = ctx.pdf();
-        String doc = docLang(pdf);
-        validateLanguageOfAlternateNames(pdf, out);
+        validateLanguageOfAlternateNames(ctx.pdf(), out);
         return out;
     }
 
 
 
     public void validateLanguageOfAlternateNames(PdfDocument pdf, List<FindingDTO> out) {
-        String docLang = pdf.getCatalog().getLang().getValue();
+        final String docLang = docLang(pdf);
         PdfAcroForm acro = PdfAcroForm.getAcroForm(pdf, false);
         if (acro == null) return;
 
@@ -41,7 +34,8 @@ public class ValidateLangOfFormFieldAltNames implements Rule {
             PdfString tu = field.getAlternativeName();
             if (tu == null || tu.getValue().isBlank())
                 continue;
-            String fieldLang = field.getPdfObject().getAsString(PdfName.Lang).getValue();
+            PdfString langStr = field.getPdfObject().getAsString(PdfName.Lang);
+            String fieldLang = langStr != null ? langStr.getValue() : null;
             String pageLang = null;
             int pageNum = 0;
             List<PdfWidgetAnnotation> widgets = field.getWidgets();

@@ -6,17 +6,11 @@ import com.itextpdf.io.source.RandomAccessFileOrArray;
 import com.itextpdf.io.source.RandomAccessSourceFactory;
 import com.itextpdf.kernel.pdf.*;
 import com.netralabs.Rule;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
 import java.util.*;
 
 public class ValidateReferencedExternalObjects implements Rule {
-
-    @Override
-    public EnumSet<Phase> phases() {
-        return EnumSet.of(Phase.DOCUMENT);
-    }
 
     @Override
     public List<FindingDTO> run(Context ctx) {

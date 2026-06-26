@@ -1,22 +1,18 @@
 package com.netralabs.basic.naturallanguage;
 
 import com.itextpdf.kernel.pdf.*;
-import com.itextpdf.kernel.pdf.navigation.PdfDestination;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
 import com.netralabs.domain.PDFUACheckpoint;
-import com.netralabs.domain.Phase;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
 
 import java.util.*;
 
 import static com.netralabs.basic.naturallanguage.ActualTextHelper.*;
+import static com.netralabs.basic.naturallanguage.LangUtils.docLang;
 
 public class ValidateLangOfBookmarks implements Rule {
-
-    @Override
-    public EnumSet<Phase> phases(){ return EnumSet.of(Phase.DOCUMENT); }
 
     @Override
     public List<FindingDTO> run(Context ctx) {
@@ -34,19 +30,26 @@ public class ValidateLangOfBookmarks implements Rule {
             return;
         }
 
+        final String docLang = docLang(pdf);
         Deque<PdfOutline> stack = new ArrayDeque<>(root.getAllChildren());
         while (!stack.isEmpty()) {
             PdfOutline ol = stack.pop();
             // Skip if no /Title at all
             String title = ol.getTitle();
             if (title != null && !title.isBlank()) {
-                int pageNum = 0;
-                String lang = null;
-                addLangFinding(out, lang, PDFUACheckpoint.NATURAL_LANGUAGE_BOOKMARK, pageNum);
+                String effective = firstNonBlank(outlineLang(ol), docLang);
+                addLangFinding(out, effective, PDFUACheckpoint.NATURAL_LANGUAGE_BOOKMARK, 0);
             }
 
             List<PdfOutline> kids = ol.getAllChildren();
             if (kids != null) for (int i = kids.size() - 1; i >= 0; i--) stack.push(kids.get(i));
         }
+    }
+
+    private static String outlineLang(PdfOutline ol) {
+        PdfDictionary dict = ol.getContent();
+        if (dict == null) return null;
+        PdfString s = dict.getAsString(PdfName.Lang);
+        return s != null ? s.getValue() : null;
     }
 }

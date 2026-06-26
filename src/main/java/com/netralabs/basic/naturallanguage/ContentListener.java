@@ -75,21 +75,12 @@ public class ContentListener  implements IEventListener {
     public void eventOccurred(IEventData data, EventType type) {
         switch (type) {
             case RENDER_TEXT: {
-                if (currentMcid != null || inArtifact)  {
-                    emitFinding(resolveLang());
-                    blockCounted = true;
-                }
-                if (markedDepth > 0) {
-                    if (!blockCounted) {
-                        emitFinding(resolveLang());
-                        blockCounted = true;
-                    }
-                } else {
-                    if (!inBareRun) {
-                        emitFinding(resolveLang());
-                        inBareRun = true;
-                    }
-                }
+                // PAC's "Natural language of text objects" only counts tagged real content:
+                //  - artifacts are excluded (no lang requirement per PDF/UA)
+                //  - untagged bare text is reported by a different checkpoint
+                if (inArtifact) break;
+                if (currentMcid == null) break;
+                emitFinding(resolveLang());
                 break;
             }
             case RENDER_PATH:
@@ -111,7 +102,8 @@ public class ContentListener  implements IEventListener {
     }
 
     private String resolveLang() {
-        return !langStack.isEmpty() ? langStack.peek() : null;
+        if (!langStack.isEmpty()) return langStack.peek();
+        return docLang;
     }
 
     private void emitFinding(String lang) {
