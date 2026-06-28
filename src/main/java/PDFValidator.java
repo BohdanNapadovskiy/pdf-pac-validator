@@ -5,6 +5,7 @@ import com.netralabs.report.FindingDTO;
 import com.netralabs.report.ReportBuilder;
 import com.netralabs.report.ReportDTO;
 import com.netralabs.report.ReportWriter;
+import com.netralabs.report.wcag.WCAGReportBuilder;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
@@ -31,6 +32,7 @@ public class PDFValidator {
       Runner runner = new Runner();
       List<FindingDTO> findings = runner.runAll(pdf, path);
       ReportDTO report = ReportBuilder.build(pdf, path, findings);
+      report.getReports().setWcag(WCAGReportBuilder.build(findings));
       Path written = ReportWriter.write(report, path, output);
       log.info("Report written to: {}", written);
     } catch (Exception e) {

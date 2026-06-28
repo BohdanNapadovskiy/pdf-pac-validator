@@ -32,12 +32,10 @@ public final class ReportBuilder {
     // 4-level tree: Category → SubCategory → (optional Group) → Checkpoint
     // The null group key means "checkpoint sits directly under the subcategory".
     Map<String, Map<String, Map<String, List<CheckpointReportDTO>>>> tree = new LinkedHashMap<>();
-    String reportName = null;
     SummaryDTO summary = new SummaryDTO();
 
     for (Map.Entry<PDFUACheckpoint, List<FindingDTO>> e : byCheckpoint.entrySet()) {
       PDFUACheckpoint cp = e.getKey();
-      if (reportName == null) reportName = cp.getReportName();
 
       CheckpointReportDTO checkpointDto = toCheckpointDto(cp, e.getValue());
       tally(summary, checkpointDto.getStatus());
@@ -51,10 +49,8 @@ public final class ReportBuilder {
     summary.setTotal(summary.getPassed() + summary.getWarning() + summary.getFailed()
         + summary.getNotApplicable() + summary.getNotImplemented());
 
-    ReportDTO report = new ReportDTO();
-    report.setReport(reportName);
-    report.setDocument(documentPath);
-    report.setSummary(summary);
+    PdfUaSectionDTO pdfUa = new PdfUaSectionDTO();
+    pdfUa.setSummary(summary);
     CountsDTO rootCounts = new CountsDTO();
 
     for (Map.Entry<String, Map<String, Map<String, List<CheckpointReportDTO>>>> catEntry : tree.entrySet()) {
@@ -122,16 +118,22 @@ public final class ReportBuilder {
       category.setStatus(rollup(subStatuses));
       category.setCounts(categoryCounts);
       rootCounts.add(categoryCounts);
-      report.getCategories().add(category);
+      pdfUa.getCategories().add(category);
     }
-    report.setCounts(rootCounts);
-    report.setShortSummary(buildShortSummary(report.getCategories()));
+    pdfUa.setCounts(rootCounts);
+    pdfUa.setShortSummary(buildShortSummary(pdfUa.getCategories()));
 
+    ReportsDTO reports = new ReportsDTO();
+    reports.setDocument(documentPath);
     if (pdf != null) {
       DocumentInfoDTO info = DocumentInfoBuilder.build(pdf, documentPath);
       info.setCompliant(summary.getFailed() == 0);
-      report.setInfo(info);
+      reports.setInfo(info);
     }
+    reports.setPdfUa(pdfUa);
+
+    ReportDTO report = new ReportDTO();
+    report.setReports(reports);
     return report;
   }
 
