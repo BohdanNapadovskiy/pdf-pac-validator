@@ -1,7 +1,12 @@
 package com.netralabs.domain;
 
 import com.netralabs.Rule;
-import com.netralabs.basic.content.*;
+import com.netralabs.basic.content.ValidateArtifactsInsideTagged;
+import com.netralabs.basic.content.ValidateOCConfigAS;
+import com.netralabs.basic.content.ValidateOCConfigName;
+import com.netralabs.basic.content.ValidateTaggedCoverage;
+import com.netralabs.basic.content.ValidateTaggedInsideArtifacts;
+import com.netralabs.basic.content.ValidateUnicodeMapping;
 import com.netralabs.basic.emebededfiles.ValidateFileSpecFAndUF;
 import com.netralabs.basic.fonts.*;
 import com.netralabs.basic.naturallanguage.*;
@@ -215,7 +220,7 @@ public enum PDFUACheckpoint {
             "Content",
             "Referenced external objects",
             "",
-            ValidateReferencedExternalObjects::new,
+            null,
             null
     ),
     NAME_ENTRY_OCCD(
