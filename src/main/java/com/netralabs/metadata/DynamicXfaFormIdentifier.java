@@ -13,7 +13,6 @@ import java.util.List;
 
 import static com.netralabs.domain.PDFUACheckpoint.DYNAMIC_XFA_FORM;
 import static com.netralabs.domain.Severity.ERROR;
-import static com.netralabs.domain.Severity.PASSED;
 
 public class DynamicXfaFormIdentifier implements Rule {
 

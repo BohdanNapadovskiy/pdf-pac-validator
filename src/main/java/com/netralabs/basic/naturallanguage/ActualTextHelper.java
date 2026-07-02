@@ -11,7 +11,10 @@ import java.util.List;
 public class ActualTextHelper {
 
     public static String getStr(PdfString s) {
-        return s == null ? null : s.getValue();
+        // Route through LangUtils.pdfStringValue so /Lang PdfStrings that are UTF-16-encoded
+        // (BOM FE FF ...) get decoded correctly. Callers use this for both /Lang and other
+        // string values; PdfString.toUnicodeString() is safe for both encodings.
+        return LangUtils.pdfStringValue(s);
     }
 
     public static String firstNonBlank(String... v) {

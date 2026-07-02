@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The PDF/UA branch of the report — counts/summary plus the category tree.
+ * The PDF/UA branch of the report — short PAC-style summary plus the category tree.
  * Lives under {@code reports."PDF/UA"} in the output JSON.
  */
 @Getter
@@ -19,10 +19,8 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
-@JsonPropertyOrder({"counts", "summary", "shortSummary", "categories"})
+@JsonPropertyOrder({"shortSummary", "categories"})
 public class PdfUaSectionDTO {
-  private CountsDTO counts;
-  private SummaryDTO summary;
   private List<ShortSummaryEntryDTO> shortSummary = new ArrayList<>();
   private List<CategoryDTO> categories = new ArrayList<>();
 }

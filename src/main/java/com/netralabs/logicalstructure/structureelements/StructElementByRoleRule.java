@@ -1,6 +1,9 @@
 package com.netralabs.logicalstructure.structureelements;
 
+import com.itextpdf.kernel.pdf.PdfDictionary;
 import com.itextpdf.kernel.pdf.PdfDocument;
+import com.itextpdf.kernel.pdf.PdfName;
+import com.itextpdf.kernel.pdf.PdfString;
 import com.itextpdf.kernel.pdf.tagging.IStructureNode;
 import com.itextpdf.kernel.pdf.tagging.PdfStructElem;
 import com.netralabs.Rule;
@@ -79,6 +82,35 @@ public class StructElementByRoleRule implements Rule {
             Map.entry("Form",       FORM_STRUCTURE_ELEMENTS)
     );
 
+    private static final PdfName ID = new PdfName("ID");
+    private static final PdfName CONTENTS = new PdfName("Contents");
+
+    /**
+     * PAC's "'X' structure elements" row shows a WARNING (orange triangle) per element
+     * when that element lacks an accessibility attribute that PAC treats as required.
+     * <ul>
+     *   <li>{@code Note} — must carry {@code /ID}. Missing → WARNING.</li>
+     *   <li>{@code Link} — must carry an alternative description via {@code /Alt} or
+     *       {@code /Contents}. Missing both → WARNING.</li>
+     *   <li>{@code Figure} — must carry {@code /ActualText} in addition to {@code /Alt}.
+     *       Missing {@code /ActualText} → WARNING (matches PAC's per-Figure flag even
+     *       when {@code /Alt} is present).</li>
+     * </ul>
+     */
+    private static Severity severityFor(String role, PdfDictionary d) {
+        return switch (role) {
+            case "Note" -> nonEmpty(d.getAsString(ID)) ? Severity.PASSED : Severity.WARNING;
+            case "Link" -> (nonEmpty(d.getAsString(PdfName.Alt))
+                    || nonEmpty(d.getAsString(CONTENTS))) ? Severity.PASSED : Severity.WARNING;
+            case "Figure" -> nonEmpty(d.getAsString(PdfName.ActualText)) ? Severity.PASSED : Severity.WARNING;
+            default -> Severity.PASSED;
+        };
+    }
+
+    private static boolean nonEmpty(PdfString s) {
+        return s != null && !s.getValue().isEmpty();
+    }
+
     // Guard: only the first instance per document does the walk; later instances return empty.
     private static volatile PdfDocument done;
 
@@ -97,7 +129,8 @@ public class StructElementByRoleRule implements Rule {
             PDFUACheckpoint cp = ROLE_TO_CHECKPOINT.get(role);
             int page = StructUtils.pageNumOf(pdf, elem.getPdfObject());
             if (cp != null) {
-                out.add(new FindingDTO(Severity.PASSED, cp, page, null));
+                Severity sev = severityFor(role, elem.getPdfObject());
+                out.add(new FindingDTO(sev, cp, page, null));
             }
 
             // PAC behavior for 7.2-10 ("TR may contain only TH and TD"): emit the error against

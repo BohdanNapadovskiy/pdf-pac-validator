@@ -21,6 +21,7 @@ public final class DocumentInfoBuilder {
 
   private static final String DC_NS = "http://purl.org/dc/elements/1.1/";
   private static final String NO_TITLE_PLACEHOLDER = "(no title)";
+  private static final String NO_LANGUAGE_PLACEHOLDER = "(no language)";
 
   private DocumentInfoBuilder() {}
 
@@ -30,12 +31,22 @@ public final class DocumentInfoBuilder {
     return DocumentInfoDTO.builder()
         .title(resolveTitle(pdf))
         .filename(path.getFileName().toString())
-        .language(LangUtils.docLang(pdf))
+        .language(resolveLanguage(pdf))
         .pages(pdf.getNumberOfPages())
         .tags(countStructElements(pdf))
         .sizeBytes(sizeBytes)
         .size(formatSize(sizeBytes))
         .build();
+  }
+
+  private static String resolveLanguage(PdfDocument pdf) {
+    try {
+      String lang = LangUtils.docLang(pdf);
+      if (lang != null && !lang.isBlank()) return lang;
+    } catch (Exception e) {
+      log.debug("Failed to read document language", e);
+    }
+    return NO_LANGUAGE_PLACEHOLDER;
   }
 
   private static String resolveTitle(PdfDocument pdf) {

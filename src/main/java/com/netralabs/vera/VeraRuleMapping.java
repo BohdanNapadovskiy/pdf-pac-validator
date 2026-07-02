@@ -1,10 +1,17 @@
 package com.netralabs.vera;
 
 import com.netralabs.domain.PDFUACheckpoint;
+import lombok.extern.slf4j.Slf4j;
+import org.verapdf.pdfa.flavours.PDFAFlavour;
+import org.verapdf.pdfa.validation.profiles.Profiles;
+import org.verapdf.pdfa.validation.profiles.Rule;
+import org.verapdf.pdfa.validation.profiles.ValidationProfile;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
+@Slf4j
 public final class VeraRuleMapping {
 
   private static final String P = "ISO 14289-1:2014-";
@@ -16,14 +23,11 @@ public final class VeraRuleMapping {
    * severity wrong".
    */
   private static final Set<String> WARNING_RULES = Set.of(
-      P + "7.2-6",   // TBody container
-      P + "7.2-15",  // Table regularity
-      P + "7.2-41",  // Table regularity
-      P + "7.2-42",  // Table regularity
-      P + "7.2-43"   // Table regularity
+      P + "7.2-6"   // TBody container
+      // 7.2-15 / 7.2-41 / 7.2-42 / 7.2-43 handled natively (see UA1_MAP note).
   );
 
-  private static final Map<String, PDFUACheckpoint> MAP = Map.ofEntries(
+  private static final Map<String, PDFUACheckpoint> UA1_MAP = Map.ofEntries(
       // Role mapping
       Map.entry(P + "7.1-5",   PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE),
       Map.entry(P + "7.1-6",   PDFUACheckpoint.CIRCULAR_ROLE_MAPPING),
@@ -44,15 +48,15 @@ public final class VeraRuleMapping {
       Map.entry(P + "7.2-12",  PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
       Map.entry(P + "7.2-13",  PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
       Map.entry(P + "7.2-14",  PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
-      Map.entry(P + "7.2-15",  PDFUACheckpoint.TABLE_REGULARITY),
+      // 7.2-15 and 7.2-41/42/43 (Table regularity) are handled natively by
+      // ValidateTableRegularity — one PASSED per regular Table, one WARNING per
+      // irregular TR. Vera's per-table WARNING would double-count.
       Map.entry(P + "7.2-16",  PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
       Map.entry(P + "7.2-36",  PDFUACheckpoint.THEAD_STRUCTURE_ELEMENTS),
       Map.entry(P + "7.2-37",  PDFUACheckpoint.TBODY_STRUCTURE_ELEMENTS),
       Map.entry(P + "7.2-38",  PDFUACheckpoint.TFOOT_STRUCTURE_ELEMENTS),
       Map.entry(P + "7.2-39",  PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
-      Map.entry(P + "7.2-41",  PDFUACheckpoint.TABLE_REGULARITY),
-      Map.entry(P + "7.2-42",  PDFUACheckpoint.TABLE_REGULARITY),
-      Map.entry(P + "7.2-43",  PDFUACheckpoint.TABLE_REGULARITY),
+      // 7.2-41/42/43 handled natively — see note above.
 
       // Lists
       Map.entry(P + "7.2-17",  PDFUACheckpoint.LI_STRUCTURE_ELEMENTS),
@@ -86,18 +90,187 @@ public final class VeraRuleMapping {
       Map.entry(P + "7.18.8-1", PDFUACheckpoint.PRINTER_MARK_ANNOTATIONS),
 
       // XObjects
-      Map.entry(P + "7.20-1",  PDFUACheckpoint.REFERENCED_EXTERNAL_OBJECT),
-      Map.entry(P + "7.20-2",  PDFUACheckpoint.CONTENT_PRESENT)
+      Map.entry(P + "7.20-1",  PDFUACheckpoint.REFERENCED_EXTERNAL_OBJECT)
+      // 7.20-2 ("Content shall be present in admissible locations") intentionally
+      // unmapped — PAC treats this checkpoint as NA universally; vera's PASSED count
+      // would inflate the row.
   );
+
+  /**
+   * PDFUA_2 / ISO 32005 mapping.
+   *
+   * <p>Instead of hardcoding 1723 rule IDs, we build the map at class-init by iterating
+   * the profile and routing each rule by its <em>object type</em> (e.g. every rule with
+   * {@code object="SEFigure"} → {@link PDFUACheckpoint#FIGURE_STRUCTURE_ELEMENTS}). One
+   * clause-specific override handles {@code 8.2.5.28.2} which is Figure BBox geometric
+   * containment and belongs under {@link PDFUACheckpoint#BOUNDED_BOXES}.
+   *
+   * <p>Runtime rule IDs come in two prefixes:
+   * <ul>
+   *   <li>{@code "ISO 14289-2:2024-<clause>-<test>"} — the PDF/UA-2 core rules</li>
+   *   <li>{@code "ISO 32005:2023-<clause>-<test>"}   — nesting rules ("Table 5. X-Y")</li>
+   * </ul>
+   * Both are handled uniformly since we key off the runtime {@code RuleId} string.
+   */
+  private static final Map<String, PDFUACheckpoint> OBJECT_TO_CHECKPOINT = Map.<String, PDFUACheckpoint>ofEntries(
+      Map.entry("MainXMPPackage",       PDFUACheckpoint.PDF_UA_IDENTIFIER),
+      Map.entry("PDFUAIdentification",  PDFUACheckpoint.PDF_UA_IDENTIFIER),
+      Map.entry("PDDocument",           PDFUACheckpoint.CORRECTNESS_LANGUAGE_ATR),
+      Map.entry("PDAcroForm",           PDFUACheckpoint.ALTERNATIVE_NAMES_FORM_FIELDS),
+      Map.entry("PDStructTreeRoot",     PDFUACheckpoint.LOGICAL_STRUCTURE_SYNTAX),
+      Map.entry("PDStructElem",         PDFUACheckpoint.LOGICAL_STRUCTURE_SYNTAX),
+      Map.entry("CosDocument",          PDFUACheckpoint.DISPLAY_DOCUMENT_TITLE),
+      // Structure elements
+      Map.entry("SEDocument",           PDFUACheckpoint.DOCUMENT_STRUCTURE_ELEMENT),
+      Map.entry("SEDocumentFragment",   PDFUACheckpoint.DOCUMENT_STRUCTURE_ELEMENT),
+      Map.entry("SEPart",               PDFUACheckpoint.PART_STRUCTURE_ELEMENT),
+      Map.entry("SEArt",                PDFUACheckpoint.ART_STRUCTURE_ELEMENT),
+      Map.entry("SEAside",              PDFUACheckpoint.ART_STRUCTURE_ELEMENT),
+      Map.entry("SESect",               PDFUACheckpoint.SECT_STRUCTURE_ELEMENT),
+      Map.entry("SEDiv",                PDFUACheckpoint.DIV_STRUCTURE_ELEMENT),
+      Map.entry("SEBlockQuote",         PDFUACheckpoint.BLOCKQUOTE_STRUCTURE_ELEMENT),
+      Map.entry("SECaption",            PDFUACheckpoint.CAPTION_STRUCTURE_ELEMENTS),
+      Map.entry("SEIndex",              PDFUACheckpoint.INDEX_STRUCTURE_ELEMENTS),
+      Map.entry("SEPrivate",            PDFUACheckpoint.PRIVATE_STRUCTURE_ELEMENTS),
+      Map.entry("SEBibEntry",           PDFUACheckpoint.BIBENTRY_STRUCTURE_ELEMENTS),
+      Map.entry("SECode",               PDFUACheckpoint.CODE_STRUCTURE_ELEMENTS),
+      Map.entry("SENote",               PDFUACheckpoint.NOTE_STRUCTURE_ELEMENTS),
+      Map.entry("SEFENote",             PDFUACheckpoint.NOTE_STRUCTURE_ELEMENTS),
+      Map.entry("SEReference",          PDFUACheckpoint.REFERENCE_STRUCTURE_ELEMENTS),
+      Map.entry("SETOC",                PDFUACheckpoint.TOC_STRUCTURE_ELEMENTS),
+      Map.entry("SETOCI",               PDFUACheckpoint.TOCI_STRUCTURE_ELEMENTS),
+      Map.entry("SEP",                  PDFUACheckpoint.P_STRUCTURE_ELEMENTS),
+      Map.entry("SEH",                  PDFUACheckpoint.H_STRUCTURE_ELEMENTS),
+      Map.entry("SEHn",                 PDFUACheckpoint.H_STRUCTURE_ELEMENTS),
+      Map.entry("SETitle",              PDFUACheckpoint.H_STRUCTURE_ELEMENTS),
+      Map.entry("SEFigure",             PDFUACheckpoint.FIGURE_STRUCTURE_ELEMENTS),
+      Map.entry("SEFormula",            PDFUACheckpoint.FORMULA_STRUCTURE_ELEMENTS),
+      Map.entry("SEForm",               PDFUACheckpoint.FORM_STRUCTURE_ELEMENTS),
+      Map.entry("SESpan",               PDFUACheckpoint.SPAN_STRUCTURE_ELEMENTS),
+      Map.entry("SEQuote",              PDFUACheckpoint.QUOTE_STRUCTURE_ELEMENTS),
+      Map.entry("SELink",               PDFUACheckpoint.LINK_STRUCTURE_ELEMENTS),
+      Map.entry("SEAnnot",              PDFUACheckpoint.ANNOT_STRUCTURE_ELEMENTS),
+      Map.entry("SEL",                  PDFUACheckpoint.L_STRUCTURE_ELEMENTS),
+      Map.entry("SELI",                 PDFUACheckpoint.LI_STRUCTURE_ELEMENTS),
+      Map.entry("SELBody",              PDFUACheckpoint.LBODY_STRUCTURE_ELEMENTS),
+      Map.entry("SELbl",                PDFUACheckpoint.Lbl_STRUCTURE_ELEMENTS),
+      Map.entry("SETable",              PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
+      Map.entry("SETR",                 PDFUACheckpoint.TR_STRUCTURE_ELEMENTS),
+      Map.entry("SETH",                 PDFUACheckpoint.TH_STRUCTURE_ELEMENTS),
+      Map.entry("SETD",                 PDFUACheckpoint.TD_STRUCTURE_ELEMENTS),
+      Map.entry("SETHead",              PDFUACheckpoint.THEAD_STRUCTURE_ELEMENTS),
+      Map.entry("SETBody",              PDFUACheckpoint.TBODY_STRUCTURE_ELEMENTS),
+      Map.entry("SETFoot",              PDFUACheckpoint.TFOOT_STRUCTURE_ELEMENTS),
+      Map.entry("SERuby",               PDFUACheckpoint.RUBY_STRUCTURE_ELEMENTS),
+      Map.entry("SERB",                 PDFUACheckpoint.RB_STRUCTURE_ELEMENTS),
+      Map.entry("SERT",                 PDFUACheckpoint.RT_STRUCTURE_ELEMENTS),
+      Map.entry("SERP",                 PDFUACheckpoint.RP_STRUCTURE_ELEMENTS),
+      Map.entry("SEWarichu",            PDFUACheckpoint.WARICHU_STRUCTURE_ELEMENTS),
+      Map.entry("SEWP",                 PDFUACheckpoint.WP_STRUCTURE_ELEMENTS),
+      Map.entry("SEWT",                 PDFUACheckpoint.WT_STRUCTURE_ELEMENTS),
+      // Annotations
+      Map.entry("PDLinkAnnot",          PDFUACheckpoint.NESTING_LINK_ANNOTATIONS),
+      Map.entry("PDWidgetAnnot",        PDFUACheckpoint.NESTING_WIDGET_ANNOTATIONS),
+      Map.entry("PDAnnot",              PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDTrapNetAnnot",       PDFUACheckpoint.TRAP_NET_ANNOTATIONS),
+      Map.entry("PDPrinterMarkAnnot",   PDFUACheckpoint.PRINTER_MARK_ANNOTATIONS),
+      Map.entry("PDPopupAnnot",         PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDFileAttachmentAnnot",PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDMarkupAnnot",        PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDWatermarkAnnot",     PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDRubberStampAnnot",   PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDInkAnnot",           PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDScreenAnnot",        PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDMovieAnnot",         PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDSoundAnnot",         PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDRichMediaAnnot",     PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PD3DAnnot",            PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      Map.entry("PDTextField",          PDFUACheckpoint.ALTERNATIVE_NAMES_FORM_FIELDS),
+      // Content / real-content
+      Map.entry("SEArtifact",           PDFUACheckpoint.ARTIFACT_INSIDE_TAGGED_CONTENT),
+      Map.entry("SESimpleContentItem",  PDFUACheckpoint.TAGGED_CONTENT_ARTIFACTS),
+      Map.entry("SEGraphicContentItem", PDFUACheckpoint.TAGGED_CONTENT_ARTIFACTS),
+      Map.entry("SEMathMLStructElem",   PDFUACheckpoint.FORMULA_STRUCTURE_ELEMENTS),
+      Map.entry("SEEm",                 PDFUACheckpoint.SPAN_STRUCTURE_ELEMENTS),
+      Map.entry("SEStrong",             PDFUACheckpoint.SPAN_STRUCTURE_ELEMENTS),
+      Map.entry("SESub",                PDFUACheckpoint.SPAN_STRUCTURE_ELEMENTS),
+      Map.entry("SETableCell",          PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
+      Map.entry("SENonStandard",        PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE),
+      Map.entry("SENonStruct",          PDFUACheckpoint.DIV_STRUCTURE_ELEMENT),
+      // Fonts / CMap / glyph
+      // NOTE: veraPDF's "Glyph" rule is intentionally NOT mapped — ValidateUnicodeMapping
+      // (native) covers this checkpoint with PAC-matching per-text-object granularity.
+      // Adding "Glyph" here double-counts (native ~330 + vera ~10K on tagged docs).
+      Map.entry("CMapFile",             PDFUACheckpoint.PREDEFINED_CMAPS),
+      Map.entry("PDCMap",               PDFUACheckpoint.PREDEFINED_CMAPS),
+      Map.entry("PDReferencedCMap",     PDFUACheckpoint.REFERENCE_CMAP),
+      Map.entry("PDCIDFont",            PDFUACheckpoint.CID_GID_MAPPING),
+      Map.entry("PDType0Font",          PDFUACheckpoint.REGISTRY_ENTRIES),
+      Map.entry("PDTrueTypeFont",       PDFUACheckpoint.GLYPH_NAMES),
+      Map.entry("PDFont",               PDFUACheckpoint.FONT_EMBEDDING),
+      Map.entry("TrueTypeFontProgram",  PDFUACheckpoint.GLYPH_NAMES),
+      // Lang / actual text
+      Map.entry("CosLang",              PDFUACheckpoint.CORRECTNESS_LANGUAGE_ATR),
+      Map.entry("CosActualText",        PDFUACheckpoint.NATURAL_LANGUAGE_ACTUAL_TEXT),
+      Map.entry("CosAlt",               PDFUACheckpoint.NATURAL_LANGUAGE_ALTERNATIVE_TEXT),
+      Map.entry("CosTextString",        PDFUACheckpoint.NATURAL_LANGUAGE_TEXT_OBJECT),
+      Map.entry("CosFileSpecification", PDFUACheckpoint.F_UF_FILE_SPECIFICATION),
+      // Misc
+      Map.entry("PDPage",               PDFUACheckpoint.PDF_SYNTAX),
+      Map.entry("PDGoToAction",         PDFUACheckpoint.PDF_SYNTAX),
+      Map.entry("PDDestination",        PDFUACheckpoint.PDF_SYNTAX),
+      Map.entry("PDOCConfig",           PDFUACheckpoint.NAME_ENTRY_OCCD)
+  );
+
+  /**
+   * Clause-specific overrides that take precedence over object-based mapping. Used when
+   * a particular rule inside an object has a distinct semantic (e.g. Figure BBox
+   * geometric-containment rule lives in the Figure object but belongs under BBox).
+   */
+  private static final Map<String, PDFUACheckpoint> CLAUSE_OVERRIDES = Map.of(
+      "8.2.5.28.2", PDFUACheckpoint.BOUNDED_BOXES
+  );
+
+  // Declared last so both OBJECT_TO_CHECKPOINT and CLAUSE_OVERRIDES are initialised
+  // before we iterate the profile.
+  private static final Map<String, PDFUACheckpoint> UA2_MAP = buildUa2Map();
+
+  private static Map<String, PDFUACheckpoint> buildUa2Map() {
+    Map<String, PDFUACheckpoint> m = new HashMap<>(2048);
+    try {
+      // Foundry must be initialised before profiles can be resolved. VeraRunner calls
+      // VeraGreenfieldFoundryProvider.initialise() before running validation; call it
+      // here too so map construction is independent of first-validation ordering.
+      org.verapdf.gf.foundry.VeraGreenfieldFoundryProvider.initialise();
+      ValidationProfile profile = Profiles.getVeraProfileDirectory()
+          .getValidationProfileByFlavour(PDFAFlavour.PDFUA_2);
+      for (Rule r : profile.getRules()) {
+        String clause = r.getRuleId().getClause();
+        String test   = String.valueOf(r.getRuleId().getTestNumber());
+        String spec   = r.getRuleId().getSpecification().getId();
+        String ruleId = spec + "-" + clause + "-" + test;
+        PDFUACheckpoint cp = CLAUSE_OVERRIDES.getOrDefault(clause,
+            OBJECT_TO_CHECKPOINT.get(r.getObject()));
+        if (cp != null) m.put(ruleId, cp);
+      }
+      log.info("PDFUA_2 rule mapping built: {} of {} rules mapped",
+          m.size(), profile.getRules().size());
+    } catch (Exception e) {
+      log.warn("Failed to build PDFUA_2 mapping — checkpoints served only by UA-2 will show NA: {}",
+          e.getMessage());
+    }
+    return Map.copyOf(m);
+  }
 
   private VeraRuleMapping() {}
 
   public static PDFUACheckpoint toCheckpoint(String veraRuleId) {
-    return MAP.get(veraRuleId);
+    PDFUACheckpoint cp = UA1_MAP.get(veraRuleId);
+    return cp != null ? cp : UA2_MAP.get(veraRuleId);
   }
 
   public static boolean covers(PDFUACheckpoint cp) {
-    return MAP.containsValue(cp);
+    return UA1_MAP.containsValue(cp) || UA2_MAP.containsValue(cp);
   }
 
   public static boolean isWarning(String veraRuleId) {

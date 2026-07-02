@@ -15,11 +15,10 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
-@JsonPropertyOrder({"name", "status", "counts", "groups", "checkpoints"})
+@JsonPropertyOrder({"name", "status", "counts", "checkpoints"})
 public class SubCategoryDTO {
   private String name;
   private CheckpointStatus status;
   private CountsDTO counts;
-  private List<GroupDTO> groups = new ArrayList<>();
   private List<CheckpointReportDTO> checkpoints = new ArrayList<>();
 }

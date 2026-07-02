@@ -50,7 +50,7 @@ public final class ReportBuilder {
         + summary.getNotApplicable() + summary.getNotImplemented());
 
     PdfUaSectionDTO pdfUa = new PdfUaSectionDTO();
-    pdfUa.setSummary(summary);
+    // summary stays local — used to drive info.compliant; not surfaced in JSON since Step 14.
     CountsDTO rootCounts = new CountsDTO();
 
     for (Map.Entry<String, Map<String, Map<String, List<CheckpointReportDTO>>>> catEntry : tree.entrySet()) {
@@ -66,46 +66,34 @@ public final class ReportBuilder {
         List<CheckpointStatus> subItemStatuses = new ArrayList<>();
         CountsDTO subCounts = new CountsDTO();
 
-        Map<String, List<CheckpointReportDTO>> byGroup = subEntry.getValue();
-
-        // If only the empty-string group key exists, render checkpoints directly under the subcategory.
-        // Otherwise build GroupDTOs for each named group.
-        boolean hasNamedGroups = byGroup.keySet().stream().anyMatch(k -> !k.isEmpty());
-
-        if (!hasNamedGroups) {
-          List<CheckpointReportDTO> cps = byGroup.getOrDefault("", new ArrayList<>());
-          for (CheckpointReportDTO c : cps) {
-            subItemStatuses.add(c.getStatus());
-            if (c.getCounts() != null) subCounts.add(c.getCounts());
-          }
-          sub.setCheckpoints(cps);
-        } else {
-          for (Map.Entry<String, List<CheckpointReportDTO>> grpEntry : byGroup.entrySet()) {
-            String groupName = grpEntry.getKey();
-            List<CheckpointReportDTO> cps = grpEntry.getValue();
-            if (groupName.isEmpty()) {
-              // mixed: some checkpoints in this subcategory have no group; keep them at subcategory level
-              for (CheckpointReportDTO c : cps) {
-                subItemStatuses.add(c.getStatus());
-                if (c.getCounts() != null) subCounts.add(c.getCounts());
-              }
-              sub.getCheckpoints().addAll(cps);
-              continue;
-            }
-            GroupDTO group = new GroupDTO();
-            group.setName(groupName);
-            List<CheckpointStatus> cpStatuses = new ArrayList<>();
-            CountsDTO groupCounts = new CountsDTO();
+        // Each subcategory has zero or more direct-leaf checkpoints and zero or more
+        // named-group containers, all emitted into one unified `checkpoints[]` array.
+        // Direct leaves come first, then each named group as a container CheckpointReportDTO
+        // whose `element` is the group name and `checkpoints` holds the group's leaves.
+        for (Map.Entry<String, List<CheckpointReportDTO>> grpEntry : subEntry.getValue().entrySet()) {
+          String groupName = grpEntry.getKey();
+          List<CheckpointReportDTO> cps = grpEntry.getValue();
+          if (groupName.isEmpty()) {
             for (CheckpointReportDTO c : cps) {
-              cpStatuses.add(c.getStatus());
-              if (c.getCounts() != null) groupCounts.add(c.getCounts());
+              subItemStatuses.add(c.getStatus());
+              if (c.getCounts() != null) subCounts.add(c.getCounts());
             }
-            group.setStatus(rollup(cpStatuses));
-            group.setCounts(groupCounts);
-            group.setCheckpoints(cps);
-            subItemStatuses.add(group.getStatus());
-            subCounts.add(groupCounts);
-            sub.getGroups().add(group);
+            sub.getCheckpoints().addAll(cps);
+          } else {
+            CheckpointReportDTO container = new CheckpointReportDTO();
+            container.setElement(groupName);
+            List<CheckpointStatus> containerStatuses = new ArrayList<>();
+            CountsDTO containerCounts = new CountsDTO();
+            for (CheckpointReportDTO c : cps) {
+              containerStatuses.add(c.getStatus());
+              if (c.getCounts() != null) containerCounts.add(c.getCounts());
+            }
+            container.setStatus(rollup(containerStatuses));
+            container.setCounts(containerCounts);
+            container.setCheckpoints(cps);
+            subItemStatuses.add(container.getStatus());
+            subCounts.add(containerCounts);
+            sub.getCheckpoints().add(container);
           }
         }
 
@@ -120,7 +108,6 @@ public final class ReportBuilder {
       rootCounts.add(categoryCounts);
       pdfUa.getCategories().add(category);
     }
-    pdfUa.setCounts(rootCounts);
     pdfUa.setShortSummary(buildShortSummary(pdfUa.getCategories()));
 
     ReportsDTO reports = new ReportsDTO();

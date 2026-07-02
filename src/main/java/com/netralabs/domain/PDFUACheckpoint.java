@@ -4,6 +4,7 @@ import com.netralabs.Rule;
 import com.netralabs.basic.content.ValidateArtifactsInsideTagged;
 import com.netralabs.basic.content.ValidateOCConfigAS;
 import com.netralabs.basic.content.ValidateOCConfigName;
+import com.netralabs.basic.content.ValidateReferencedExternalObjects;
 import com.netralabs.basic.content.ValidateTaggedCoverage;
 import com.netralabs.basic.content.ValidateTaggedInsideArtifacts;
 import com.netralabs.basic.content.ValidateUnicodeMapping;
@@ -15,7 +16,10 @@ import com.netralabs.basic.pdfsyntax.ValidateLogicalStructureSyntax;
 import com.netralabs.basic.pdfsyntax.ValidateParentsOfStructureElements;
 import com.netralabs.basic.pdfsyntax.ValidateStructuralParentTree;
 import com.netralabs.logicalstructure.structureelements.StructElementByRoleRule;
+import com.netralabs.logicalstructure.structureelements.annotations.ValidateAnnotationNesting;
 import com.netralabs.logicalstructure.structureelements.figures.ValidateFigureBoundingBox;
+import com.netralabs.logicalstructure.structureelements.tables.ValidateTableHeaderCellAssignments;
+import com.netralabs.logicalstructure.structureelements.tables.ValidateTableRegularity;
 import com.netralabs.logicalstructure.structureelements.headings.ValidateFirstHeadingLevel;
 import com.netralabs.logicalstructure.structureelements.headings.ValidateHeadingInsideStructureNode;
 import com.netralabs.logicalstructure.structureelements.headings.ValidateNestingOfHeadingLevels;
@@ -220,13 +224,14 @@ public enum PDFUACheckpoint {
             "Content",
             "Referenced external objects",
             "",
-            null,
-            null
+            ValidateReferencedExternalObjects::new,
+            Phase.PAGE
     ),
     NAME_ENTRY_OCCD(
             "PDF/UA",
             "Basic requirements",
             "Content",
+            "Optional Content",
             "Name entry in OCCDs (optional content configuration dictionaries)",
             "Name entry in OCCDs",
             ValidateOCConfigName::new,
@@ -236,6 +241,7 @@ public enum PDFUACheckpoint {
             "PDF/UA",
             "Basic requirements",
             "Content",
+            "Optional Content",
             "AS entry in OCCDs (optional content configuration dictionaries)",
             "AS entry in OCCDs",
             ValidateOCConfigAS::new,
@@ -257,7 +263,8 @@ public enum PDFUACheckpoint {
             "Basic requirements",
             "Natural language",
             "Correctness of language attribute",
-            "Document language metadata contains the syntax error",
+            "Document language metadata contains a syntax error",
+            "Document language metadata contains a syntax error",
             ValidateLangAttributeCorrectness::new,
             Phase.DOCUMENT
     ),
@@ -266,7 +273,7 @@ public enum PDFUACheckpoint {
             "Basic requirements",
             "Natural language",
             "Natural language of text objects",
-            "Natural language cannot be determined",
+            "Natural language for text object cannot be determined",
             ValidateLangOfTextObjects::new,
             Phase.DOCUMENT
     ),
@@ -403,8 +410,8 @@ public enum PDFUACheckpoint {
             "Annotations",
             "Nesting of \"Widget\" annotations inside a \"Form\" structure elements",
             "",
-            null,
-            null
+            ValidateAnnotationNesting::new,
+            Phase.DOCUMENT
     ),
     NESTING_LINK_ANNOTATIONS(
             "PDF/UA",
@@ -413,8 +420,8 @@ public enum PDFUACheckpoint {
             "Annotations",
             "Nesting of \"Link\" annotations inside \"Link\" structure elements",
             "",
-            null,
-            null
+            ValidateAnnotationNesting::new,
+            Phase.DOCUMENT
     ),
     NESTING_ANNOTATIONS_ANNOT(
             "PDF/UA",
@@ -423,8 +430,8 @@ public enum PDFUACheckpoint {
             "Annotations",
             "Nesting of annotations in Annot structure elements",
             "",
-            null,
-            null
+            ValidateAnnotationNesting::new,
+            Phase.DOCUMENT
     ),
     PRINTER_MARK_ANNOTATIONS(
             "PDF/UA", "Logical Structure", "Structure Elements", "Annotations", "\"PrinterMark\" annotations", "",
@@ -438,18 +445,18 @@ public enum PDFUACheckpoint {
     ),
     TABLE_REGULARITY(
             "PDF/UA", "Logical Structure", "Structure Elements", "Tables", "Table regularity", "Irregular table row",
-            null,
-            null
+            ValidateTableRegularity::new,
+            Phase.DOCUMENT
     ),
     TABLE_HEADER_CELL_ASSIGNMENTS(
             "PDF/UA",
             "Logical Structure",
             "Structure Elements",
             "Tables",
-            "Tables header cell assignments",
+            "Table header cell assignments",
             "Table Header Cell Has No Associated Sub Cells",
-            null,
-            null
+            ValidateTableHeaderCellAssignments::new,
+            Phase.DOCUMENT
     ),
 
 

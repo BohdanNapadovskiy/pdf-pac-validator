@@ -4,9 +4,12 @@ import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.tagging.IStructureNode;
 import com.itextpdf.kernel.pdf.tagging.PdfStructElem;
 import com.itextpdf.kernel.pdf.tagutils.TagTreePointer;
+import com.itextpdf.kernel.xmp.XMPMeta;
+import com.itextpdf.kernel.xmp.XMPMetaFactory;
 import com.netralabs.basic.content.Context;
 import com.netralabs.domain.PDFUACheckpoint;
 import com.netralabs.domain.Phase;
+import com.netralabs.metadata.XMPMetaHelper;
 import com.netralabs.report.FindingDTO;
 import com.netralabs.vera.VeraPdfAdapterRule;
 import com.netralabs.vera.VeraRuleMapping;
@@ -33,7 +36,7 @@ public class Runner {
     int pages = pdf.getNumberOfPages();
 
     VeraValidationResults vera = (pdfPath != null)
-        ? VeraRunner.validate(pdfPath)
+        ? VeraRunner.validate(pdfPath, declaresPdfUa2(pdf))
         : VeraValidationResults.empty();
 
     // Materialize rule instances. Native and vera adapter can coexist for a checkpoint —
@@ -119,6 +122,18 @@ public class Runner {
       }
     } catch (ReflectiveOperationException ignore) {}
     return 0;
+  }
+
+  private static boolean declaresPdfUa2(PdfDocument pdf) {
+    XMPMeta xmp = XMPMetaHelper.tryGetXmpMeta(pdf);
+    if (xmp == null) return false;
+    try {
+      XMPMetaFactory.getSchemaRegistry()
+          .registerNamespace("http://www.aiim.org/pdfua/ns/id/", "pdfuaid");
+      return "2".equals(xmp.getPropertyString("http://www.aiim.org/pdfua/ns/id/", "part"));
+    } catch (Exception e) {
+      return false;
+    }
   }
 
   private void dfsStruct(PdfDocument pdf, TagTreePointer ttp,

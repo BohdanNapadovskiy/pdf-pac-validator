@@ -33,8 +33,7 @@ public class ValidateLangOfAnnotationContents implements Rule {
                 PdfString contents = a.getContents();
                 if (contents == null || contents.getValue().isBlank())
                     continue;
-                PdfString langStr = a.getPdfObject().getAsString(PdfName.Lang);
-                String annotLang = langStr != null ? langStr.getValue() : null;
+                String annotLang = LangUtils.pdfStringValue(a.getPdfObject().getAsString(PdfName.Lang));
                 String effective = firstNonBlank(annotLang, pageLang, docLang);
                 addLangFinding(out, effective, NATURAL_LANGUAGE_CONTENTS, i);
             }

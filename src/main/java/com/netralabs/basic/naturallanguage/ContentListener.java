@@ -1,21 +1,20 @@
 package com.netralabs.basic.naturallanguage;
 
+import com.itextpdf.kernel.geom.LineSegment;
 import com.itextpdf.kernel.pdf.PdfDictionary;
 import com.itextpdf.kernel.pdf.PdfName;
 import com.itextpdf.kernel.pdf.PdfNumber;
 import com.itextpdf.kernel.pdf.PdfString;
 import com.itextpdf.kernel.pdf.canvas.parser.EventType;
 import com.itextpdf.kernel.pdf.canvas.parser.data.IEventData;
-import com.itextpdf.kernel.pdf.canvas.parser.data.ImageRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.data.TextRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.listener.IEventListener;
 import com.netralabs.domain.Severity;
+import com.netralabs.report.BBoxDTO;
 import com.netralabs.report.FindingDTO;
 
 import java.util.*;
-import java.util.function.BiConsumer;
 
-import static com.itextpdf.kernel.pdf.canvas.parser.EventType.BEGIN_TEXT;
 import static com.netralabs.basic.naturallanguage.LangUtils.isValidBCP47;
 
 public class ContentListener  implements IEventListener {
@@ -52,8 +51,8 @@ public class ContentListener  implements IEventListener {
         }
         boolean pushed = false;
         if (props != null) {
-            PdfString l = props.getAsString(PdfName.Lang);
-            if (l != null) { langStack.push(l.getValue()); pushed = true; }
+            String l = LangUtils.pdfStringValue(props.getAsString(PdfName.Lang));
+            if (l != null && !l.isBlank()) { langStack.push(l); pushed = true; }
         }
         langPushedStack.push(pushed);
     }
@@ -80,7 +79,7 @@ public class ContentListener  implements IEventListener {
                 //  - untagged bare text is reported by a different checkpoint
                 if (inArtifact) break;
                 if (currentMcid == null) break;
-                emitFinding(resolveLang());
+                emitFinding(resolveLang(), (TextRenderInfo) data);
                 break;
             }
             case RENDER_PATH:
@@ -106,13 +105,47 @@ public class ContentListener  implements IEventListener {
         return docLang;
     }
 
-    private void emitFinding(String lang) {
-        if (lang == null || lang.isBlank() || !isValidBCP47(lang)) {
-            out.add(new FindingDTO(Severity.ERROR,
-                    com.netralabs.domain.PDFUACheckpoint.NATURAL_LANGUAGE_TEXT_OBJECT, pageNum, null));
-        } else {
-            out.add(new FindingDTO(Severity.PASSED,
-                    com.netralabs.domain.PDFUACheckpoint.NATURAL_LANGUAGE_TEXT_OBJECT, pageNum, null));
-        }
+    private void emitFinding(String lang, TextRenderInfo ti) {
+        BBoxDTO bbox = bboxOf(ti);
+        Severity sev = (lang == null || lang.isBlank() || !isValidBCP47(lang))
+                ? Severity.ERROR : Severity.PASSED;
+        out.add(new FindingDTO(sev,
+                com.netralabs.domain.PDFUACheckpoint.NATURAL_LANGUAGE_TEXT_OBJECT, pageNum, bbox));
+    }
+
+    /**
+     * Text bbox from the baseline / ascent / descent segments. Same computation as
+     * {@code ContentWalker.bboxOf(TextRenderInfo)}; duplicated locally so this listener
+     * stays self-contained (it isn't driven by ContentWalker).
+     */
+    private static BBoxDTO bboxOf(TextRenderInfo ti) {
+        LineSegment baseline = ti.getBaseline();
+        LineSegment ascent = ti.getAscentLine();
+        LineSegment descent = ti.getDescentLine();
+        float minX = min6(
+                baseline.getStartPoint().get(0), baseline.getEndPoint().get(0),
+                ascent.getStartPoint().get(0),   ascent.getEndPoint().get(0),
+                descent.getStartPoint().get(0),  descent.getEndPoint().get(0));
+        float maxX = max6(
+                baseline.getStartPoint().get(0), baseline.getEndPoint().get(0),
+                ascent.getStartPoint().get(0),   ascent.getEndPoint().get(0),
+                descent.getStartPoint().get(0),  descent.getEndPoint().get(0));
+        float minY = min6(
+                baseline.getStartPoint().get(1), baseline.getEndPoint().get(1),
+                ascent.getStartPoint().get(1),   ascent.getEndPoint().get(1),
+                descent.getStartPoint().get(1),  descent.getEndPoint().get(1));
+        float maxY = max6(
+                baseline.getStartPoint().get(1), baseline.getEndPoint().get(1),
+                ascent.getStartPoint().get(1),   ascent.getEndPoint().get(1),
+                descent.getStartPoint().get(1),  descent.getEndPoint().get(1));
+        return new BBoxDTO(maxY, minX, maxY - minY, maxX - minX);
+    }
+
+    private static float min6(float a, float b, float c, float d, float e, float f) {
+        return Math.min(Math.min(Math.min(a, b), Math.min(c, d)), Math.min(e, f));
+    }
+
+    private static float max6(float a, float b, float c, float d, float e, float f) {
+        return Math.max(Math.max(Math.max(a, b), Math.max(c, d)), Math.max(e, f));
     }
 }

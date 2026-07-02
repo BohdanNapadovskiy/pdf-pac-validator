@@ -75,10 +75,11 @@ public class ValidateLogicalStructureSyntax implements Rule {
                 }
             }
 
+            // PAC treats "Logical structure syntax" as an errors-only checkpoint: it reports
+            // violations but never a positive count. When the tree is clean the checkpoint
+            // rolls up to NOT_APPLICABLE — matching PAC's `-/-/-` on that row.
             if (error != null) {
                 out.add(new FindingDTO(Severity.ERROR, LOGICAL_STRUCTURE_SYNTAX, page, null, error));
-            } else {
-                out.add(new FindingDTO(Severity.PASSED, LOGICAL_STRUCTURE_SYNTAX, page, null));
             }
         });
         return out;

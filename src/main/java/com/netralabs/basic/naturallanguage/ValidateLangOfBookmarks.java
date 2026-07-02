@@ -49,7 +49,6 @@ public class ValidateLangOfBookmarks implements Rule {
     private static String outlineLang(PdfOutline ol) {
         PdfDictionary dict = ol.getContent();
         if (dict == null) return null;
-        PdfString s = dict.getAsString(PdfName.Lang);
-        return s != null ? s.getValue() : null;
+        return LangUtils.pdfStringValue(dict.getAsString(PdfName.Lang));
     }
 }

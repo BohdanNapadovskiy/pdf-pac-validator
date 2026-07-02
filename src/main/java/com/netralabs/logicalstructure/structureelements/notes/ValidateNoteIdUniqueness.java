@@ -26,29 +26,26 @@ public class ValidateNoteIdUniqueness implements Rule  {
     }
 
     public void validate(PdfDocument pdf, List<FindingDTO> out) {
-        // Two-pass: first collect notes + detect duplicate IDs; then emit one finding per Note
-        // so counts mirror PAC's per-element granularity.
-        List<PdfStructElem> notes = new ArrayList<>();
+        // Uniqueness applies only to Notes that actually carry an /ID. Notes without
+        // /ID are flagged by ValidateNoteIdPresence and are silent here — matches
+        // PAC's NA on this row when no Note carries an /ID.
+        List<PdfStructElem> notesWithId = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         Set<String> dups = new HashSet<>();
 
         walk(pdf, (PdfStructElem el) -> {
             if (!"Note".equals(normRole(pdf, el))) return;
-            notes.add(el);
             PdfString val = el.getPdfObject().getAsString(ID);
-            if (val == null) return; // presence checked by ValidateNoteIdPresence
+            if (val == null) return;
+            notesWithId.add(el);
             String s = val.getValue();
             if (!seen.add(s)) dups.add(s);
         });
 
-        if (notes.isEmpty()) {
-            out.add(new FindingDTO(Severity.IGNORED, UNIQUE_ID_ENTRIES, 0, null));
-            return;
-        }
-        for (PdfStructElem el : notes) {
+        for (PdfStructElem el : notesWithId) {
             PdfString val = el.getPdfObject().getAsString(ID);
             int page = StructUtils.pageNumOf(pdf, el.getPdfObject());
-            boolean isDup = val != null && dups.contains(val.getValue());
+            boolean isDup = dups.contains(val.getValue());
             if (isDup) {
                 out.add(new FindingDTO(Severity.ERROR, UNIQUE_ID_ENTRIES, page, null,
                         "Duplicate /ID on Note structure element"));

@@ -11,10 +11,19 @@ public class LangUtils {
             Pattern.compile("(?i)^[a-z]{2,3}(-[a-z]{3}){0,3}(-[a-z]{4})?(-[a-z]{2}|-\\d{3})?(-[a-z0-9]{5,8}|-\\d[a-z0-9]{3})*(-[a-wy-z0-9]-[a-z0-9]{2,8})*(-x(-[a-z0-9]{1,8})+)?$");
     private LangUtils(){}
 
+    /**
+     * Decode a PdfString /Lang value. iText's {@code PdfString.getValue()} returns raw
+     * bytes as Latin-1, which garbles UTF-16-BE-encoded strings (BOM {@code FE FF} +
+     * two-byte chars). {@code toUnicodeString()} handles the BOM and 16-bit chars.
+     * Always route /Lang reads through this helper.
+     */
+    public static String pdfStringValue(PdfString s) {
+        return s == null ? null : s.toUnicodeString();
+    }
+
     /** Document default language (Catalog /Lang), null if missing. */
     public static String docLang(PdfDocument pdf) {
-        PdfString s = pdf.getCatalog().getPdfObject().getAsString(PdfName.Lang);
-        return s != null ? s.getValue() : null;
+        return pdfStringValue(pdf.getCatalog().getPdfObject().getAsString(PdfName.Lang));
     }
 
     /** Very tolerant BCP-47 (RFC 5646) check; accepts “en”, “en-US”, “zh-Hant-TW”, “de-CH-1901”, etc. */
@@ -51,8 +60,8 @@ public class LangUtils {
     public static String resolveStructElemLang(PdfDictionary se, PdfDictionary structTreeRoot, String docLang) {
         PdfDictionary cur = se;
         while (cur != null && cur != structTreeRoot) {
-            PdfString s = cur.getAsString(PdfName.Lang);
-            if (s != null && !s.getValue().isBlank()) return s.getValue();
+            String s = pdfStringValue(cur.getAsString(PdfName.Lang));
+            if (s != null && !s.isBlank()) return s;
             PdfObject p = cur.get(new PdfName("P"));
             cur = (p != null && p.isDictionary()) ? (PdfDictionary) p : null;
         }

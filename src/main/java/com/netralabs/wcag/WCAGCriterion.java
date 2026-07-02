@@ -195,7 +195,12 @@ public enum WCAGCriterion {
             "Tab order for pages with annotations", PDFUACheckpoint.TAB_ORDER_PAGES),
     O_2_4_4("2 Operable", "2.4 Navigable", "2.4.4 Link Purpose (In Context)", null),
     O_2_4_5("2 Operable", "2.4 Navigable", "2.4.5 Multiple Ways", null),
-    O_2_4_6("2 Operable", "2.4 Navigable", "2.4.6 Headings and Labels", null),
+    // 2.4.6 sources the four heading-structure rules: same checks PDF/UA fires for headings.
+    O_2_4_6("2 Operable", "2.4 Navigable", "2.4.6 Headings and Labels", null,
+            PDFUACheckpoint.USE_OF_EITHER,
+            PDFUACheckpoint.FIRST_HEADING_LEVEL,
+            PDFUACheckpoint.NESTING_HEADING_LEVEL,
+            PDFUACheckpoint.H_STRUCTURE_ELEMENTS_WITHIN),
     O_2_4_7("2 Operable", "2.4 Navigable", "2.4.7 Focus Visible", null),
 
     O_2_5_1("2 Operable", "2.5 Input Modalities", "2.5.1 Pointer Gestures", null),

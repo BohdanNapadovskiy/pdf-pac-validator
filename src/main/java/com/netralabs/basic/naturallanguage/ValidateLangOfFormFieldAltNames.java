@@ -34,8 +34,7 @@ public class ValidateLangOfFormFieldAltNames implements Rule {
             PdfString tu = field.getAlternativeName();
             if (tu == null || tu.getValue().isBlank())
                 continue;
-            PdfString langStr = field.getPdfObject().getAsString(PdfName.Lang);
-            String fieldLang = langStr != null ? langStr.getValue() : null;
+            String fieldLang = LangUtils.pdfStringValue(field.getPdfObject().getAsString(PdfName.Lang));
             String pageLang = null;
             int pageNum = 0;
             List<PdfWidgetAnnotation> widgets = field.getWidgets();
