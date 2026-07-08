@@ -29,7 +29,9 @@ public final class VeraRuleMapping {
 
   private static final Map<String, PDFUACheckpoint> UA1_MAP = Map.ofEntries(
       // Role mapping
-      Map.entry(P + "7.1-5",   PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE),
+      // 7.1-5 ("non-standard type is neither mapped nor a valid PDF/UA type") is
+      // handled natively by RoleMapValidatorRule, which emits one ERROR per offending
+      // struct element (matching PAC). Vera's per-doc aggregate would double-count.
       Map.entry(P + "7.1-6",   PDFUACheckpoint.CIRCULAR_ROLE_MAPPING),
       Map.entry(P + "7.1-7",   PDFUACheckpoint.ROLE_MAPPING_FOR_STANDARD_STRUCTURE),
 

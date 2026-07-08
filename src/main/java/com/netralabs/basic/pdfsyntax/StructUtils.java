@@ -14,6 +14,21 @@ public class StructUtils {
         return catalog.getAsDictionary(new PdfName("StructTreeRoot"));
     }
 
+    /**
+     * Tagged PDF per ISO 32000-1 §14.7: catalog has {@code /MarkInfo}
+     * with {@code /Marked true} AND a {@code /StructTreeRoot} is present.
+     * A vestigial struct tree without the {@code /Marked} flag is not a tagged
+     * PDF and structure-syntax rules should not apply to it — PAC treats
+     * these documents' logical-structure rows as NA.
+     */
+    public static boolean isTaggedPdf(PdfDocument pdf) {
+        PdfDictionary catalog = pdf.getCatalog().getPdfObject();
+        PdfDictionary markInfo = catalog.getAsDictionary(PdfName.MarkInfo);
+        boolean marked = markInfo != null
+                && (markInfo.get(PdfName.Marked) instanceof PdfBoolean b) && b.getValue();
+        return marked && catalog.containsKey(new PdfName("StructTreeRoot"));
+    }
+
     /** Depth-first walk over all StructElem dictionaries; calls visitor(parent, child). */
     public static void walkStructure(PdfDocument pdf, BiConsumer<PdfDictionary, PdfDictionary> visitor) {
         PdfDictionary root = structTreeRoot(pdf);

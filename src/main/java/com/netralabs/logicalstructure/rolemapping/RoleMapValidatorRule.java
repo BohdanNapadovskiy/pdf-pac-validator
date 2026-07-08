@@ -77,16 +77,24 @@ public class RoleMapValidatorRule implements Rule {
             }
         }
 
-        // 2) Per struct element: emit one PASSED on "of non-standard structure types".
-        //    PAC reports a count close to the number of struct elements (1077 in the
-        //    reference document; we walk the same tree).
-        StructWalk.walk(pdf, elem -> {
-            PdfName sName = elem.getPdfObject().getAsName(PdfName.S);
+        // 2) Per struct element (dict-level DFS — works even when iText's typed API
+        //    can't traverse the tree, e.g. malformed docs with non-standard roles):
+        //    PASSED if the /S role is standard or mapped to a standard tag; ERROR
+        //    if it's non-standard and unmapped (matches PAC's per-element output).
+        final PdfDictionary rmapForWalk = roleMap;
+        StructUtils.walkStructure(pdf, (parent, se) -> {
+            PdfName sName = se.getAsName(PdfName.S);
             if (sName == null) return;
             String raw = sName.getValue();
-            int page = StructUtils.pageNumOf(pdf, elem.getPdfObject());
-            if (STD_ROLES.contains(raw) || resolvesToStandard(raw, roleMap)) {
-                out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE, page, null));
+            int page = StructUtils.pageNumOf(pdf, se);
+            if (STD_ROLES.contains(raw) || resolvesToStandard(raw, rmapForWalk)) {
+                out.add(new FindingDTO(Severity.PASSED,
+                        PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE, page, null));
+            } else {
+                out.add(new FindingDTO(Severity.ERROR,
+                        PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE, page, null,
+                        "Non-standard structure type \"" + raw
+                                + "\" is neither mapped to a standard structure type nor a valid PDF/UA structure type"));
             }
         });
 

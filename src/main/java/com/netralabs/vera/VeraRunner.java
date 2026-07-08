@@ -36,10 +36,11 @@ public final class VeraRunner {
 
   /**
    * @param applyUa2CoreRules when {@code false}, findings whose rule ID is from
-   *     {@code ISO 14289-2:2024} are dropped. Use {@code false} when the document
-   *     does not declare {@code pdfuaid:part=2} — PAC.exe applies UA-2-specific rules
-   *     conditionally on that declaration. ISO 32005:2023 rules are always kept
-   *     because PAC applies them universally (e.g. Figure BBox geometric containment).
+   *     {@code ISO 14289-2:2024} <em>or</em> {@code ISO 32005:2023} are dropped.
+   *     Use {@code false} when the document does not declare {@code pdfuaid:part=2}
+   *     — PAC.exe applies both rule families conditionally on that declaration.
+   *     Figure BBox geometric containment stays covered by the native
+   *     {@code ValidateFigureBoundingBox} rule, which runs regardless of the gate.
    */
   public static VeraValidationResults validate(String pdfPath, boolean applyUa2CoreRules) {
     ensureInitialised();
@@ -80,7 +81,8 @@ public final class VeraRunner {
         // Filter: pass 1 wants only failures; pass 2 wants only passes.
         if (keepPasses != isPass) continue;
         String ruleId = formatRuleId(ta.getRuleId());
-        if (!applyUa2CoreRules && ruleId.startsWith("ISO 14289-2:2024-")) continue;
+        if (!applyUa2CoreRules
+            && (ruleId.startsWith("ISO 14289-2:2024-") || ruleId.startsWith("ISO 32005:2023-"))) continue;
         PDFUACheckpoint cp = VeraRuleMapping.toCheckpoint(ruleId);
         if (cp == null) continue;
         Severity sev;

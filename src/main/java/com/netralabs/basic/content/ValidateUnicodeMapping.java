@@ -39,10 +39,11 @@ public class ValidateUnicodeMapping implements Rule {
 
                 @Override
                 public void onShowText(PdfString s, BBoxDTO bbox) {
-                    // Only count text-showing operators whose immediately-enclosing scope is
-                    // a tagged MCID (matches PAC's per-text-object granularity, which drops
-                    // text inside nested BMC / OtherMarked / Artifact scopes).
-                    if (stack.peek() != Scope.TAGGED_MCID) return;
+                    // Count text-showing operators unless they sit inside an /Artifact
+                    // scope (decorative content). PAC counts real content regardless of
+                    // whether it's inside a tagged MCID, an OC layer BDC, or bare — only
+                    // artifact-scoped text is dropped from this checkpoint.
+                    if (stack.contains(Scope.ARTIFACT)) return;
                     String uni = s.toUnicodeString();
                     if (uni == null || uni.isEmpty() || uni.indexOf('\uFFFD') >= 0) {
                         out.add(new FindingDTO(Severity.ERROR, MAPPING_OF_CHARACTER_TO_UNICODE, pageNum, bbox,
