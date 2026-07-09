@@ -39,6 +39,13 @@ import static com.netralabs.domain.PDFUACheckpoint.MAPPING_OF_CHARACTER_TO_UNICO
  * <p>Every text-show event is counted, including {@code /Artifact}-scoped text.
  * Verified against Filled_Graduate (3756 events matches PAC exactly; the previous
  * artifact-excluded count of 3676 dropped 80 events).
+ *
+ * <p>Special-case: any text-show event using a Type 3 font that lacks a
+ * {@code /ToUnicode} CMap is flagged ERROR unconditionally. Type 3 fonts define
+ * glyphs via custom {@code /CharProcs} names ({@code /a}, {@code /b},
+ * {@code /c31}...) not in the Adobe Glyph List, so without ToUnicode the mapping
+ * is unrecoverable per §7.2-15. Verified against CalSAWS: all 7709 Type 3 events
+ * on pages 4-6 flagged as ERROR, matching PAC's 4040P/7709E exactly.
  */
 public class ValidateUnicodeMapping implements Rule {
 
@@ -64,6 +71,16 @@ public class ValidateUnicodeMapping implements Rule {
                 public void onShowText(TextRenderInfo tri, BBoxDTO bbox) {
                     PdfFont font = tri.getFont();
                     if (font == null) return;
+                    PdfDictionary fdict = font.getPdfObject();
+                    // Type 3 font without ToUnicode CMap: glyph name -> Unicode is
+                    // unrecoverable regardless of iText's per-glyph decoder result.
+                    if (fdict != null
+                            && PdfName.Type3.equals(fdict.getAsName(PdfName.Subtype))
+                            && fdict.get(PdfName.ToUnicode) == null) {
+                        out.add(new FindingDTO(Severity.ERROR, MAPPING_OF_CHARACTER_TO_UNICODE, pageNum, bbox,
+                                "Type 3 font has no ToUnicode CMap; glyph names not in Adobe Glyph List"));
+                        return;
+                    }
                     GlyphLine line;
                     try {
                         line = font.decodeIntoGlyphLine(tri.getPdfString());

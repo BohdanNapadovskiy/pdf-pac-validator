@@ -42,6 +42,14 @@ public class ValidateFontsEmbedding implements Rule {
                 log.debug("Font {} is Standard 14, skipping embedding check", fname.getValue());
                 return;
             }
+            // Type 3 fonts define glyphs inline via /CharProcs procedures — they
+            // are self-embedded by construction and carry no separate FontFile.
+            if (PdfName.Type3.equals(font.getAsName(PdfName.Subtype))) {
+                log.info("Font {} is Type3 (self-embedded via CharProcs, first seen on page {})",
+                        fname.getValue(), page);
+                out.add(new FindingDTO(Severity.PASSED, FONT_EMBEDDING, page, null));
+                return;
+            }
             PdfDictionary fd = fontDescriptorOf(font);
             if (isEmbedded(fd)) {
                 log.info("Font {} embedded (first seen on page {})", fname.getValue(), page);

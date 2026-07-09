@@ -101,15 +101,45 @@ public class StructElementByRoleRule implements Rule {
      *       must declare an explicit {@code /Placement}. Figures with default (implicit
      *       Inline) placement → WARNING; PAC treats missing {@code /Placement} as ambiguous
      *       figure sizing even when {@code /Alt} is present.</li>
+     *   <li>{@code Document} — a Document nested inside another Document (raw {@code /S}
+     *       or role-mapped) is flagged. CalSAWS's Workbook-remapped-to-Document sits
+     *       under the real root Document → WARNING for the inner element.</li>
      * </ul>
      */
-    private static Severity severityFor(String role, PdfDictionary d) {
+    private static Severity severityFor(String role, PdfDictionary d, PdfDocument pdf) {
         return switch (role) {
             case "Note" -> nonEmpty(d.getAsString(ID)) ? Severity.PASSED : Severity.WARNING;
             case "Link" -> linkWrapsAnnotation(d) ? Severity.PASSED : Severity.WARNING;
             case "Figure" -> hasLayoutPlacement(d) ? Severity.PASSED : Severity.WARNING;
+            case "Document" -> hasDocumentAncestor(d, pdf) ? Severity.WARNING : Severity.PASSED;
             default -> Severity.PASSED;
         };
+    }
+
+    /**
+     * True iff any ancestor via the {@code /P} chain resolves to a {@code Document}
+     * struct role — either raw {@code /S=Document} or a role-mapped equivalent. Walks
+     * up until it hits the StructTreeRoot or an already-visited node (cycle guard).
+     */
+    private static boolean hasDocumentAncestor(PdfDictionary d, PdfDocument pdf) {
+        PdfDictionary roleMap = pdf.getStructTreeRoot() != null
+                ? pdf.getStructTreeRoot().getRoleMap() : null;
+        java.util.Set<PdfDictionary> seen = new java.util.HashSet<>();
+        PdfDictionary cur = d.getAsDictionary(PdfName.P);
+        while (cur != null && seen.add(cur)) {
+            if (PdfName.StructTreeRoot.equals(cur.getAsName(PdfName.Type))) return false;
+            PdfName s = cur.getAsName(PdfName.S);
+            if (s != null) {
+                String raw = s.getValue();
+                if ("Document".equals(raw)) return true;
+                if (roleMap != null) {
+                    PdfName mapped = roleMap.getAsName(new PdfName(raw));
+                    if (mapped != null && "Document".equals(mapped.getValue())) return true;
+                }
+            }
+            cur = cur.getAsDictionary(PdfName.P);
+        }
+        return false;
     }
 
     private static boolean nonEmpty(PdfString s) {
@@ -169,7 +199,7 @@ public class StructElementByRoleRule implements Rule {
             PDFUACheckpoint cp = ROLE_TO_CHECKPOINT.get(role);
             int page = StructUtils.pageNumOf(pdf, elem.getPdfObject());
             if (cp != null) {
-                Severity sev = severityFor(role, elem.getPdfObject());
+                Severity sev = severityFor(role, elem.getPdfObject(), pdf);
                 out.add(new FindingDTO(sev, cp, page, null));
             }
 
