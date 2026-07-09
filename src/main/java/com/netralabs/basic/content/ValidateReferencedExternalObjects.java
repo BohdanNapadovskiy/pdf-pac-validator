@@ -8,6 +8,7 @@ import com.itextpdf.kernel.pdf.PdfName;
 import com.itextpdf.kernel.pdf.PdfPage;
 import com.itextpdf.kernel.pdf.PdfStream;
 import com.netralabs.Rule;
+import com.netralabs.basic.pdfsyntax.StructUtils;
 import com.netralabs.domain.PDFUACheckpoint;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.FindingDTO;
@@ -34,6 +35,10 @@ public class ValidateReferencedExternalObjects implements Rule {
     public List<FindingDTO> run(Context ctx) {
         PdfPage page = ctx.page();
         if (page == null) return List.of();
+        // ISO 14289-1 §7.20-1 evaluates whether referenced content is reflected in
+        // the struct tree — a meaningless check on untagged docs. PAC treats the
+        // row as N/A (dashes) when /StructTreeRoot or /MarkInfo /Marked are absent.
+        if (!StructUtils.isTaggedPdf(ctx.pdf())) return List.of();
 
         PdfDictionary xobjects = page.getResources() != null
                 ? page.getResources().getPdfObject().getAsDictionary(PdfName.XObject)

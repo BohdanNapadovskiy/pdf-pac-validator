@@ -59,6 +59,7 @@ public final class ContentWalker {
                     BBoxDTO bbox = bboxOf(ti);
                     hook.onPainted(bbox);
                     hook.onShowText(ti.getPdfString(), bbox);
+                    hook.onShowText(ti, bbox);
                 }
                 case RENDER_IMAGE -> {
                     ImageRenderInfo ii = (ImageRenderInfo) data;

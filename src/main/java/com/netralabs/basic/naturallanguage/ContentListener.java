@@ -79,11 +79,10 @@ public class ContentListener  implements IEventListener {
     public void eventOccurred(IEventData data, EventType type) {
         switch (type) {
             case RENDER_TEXT: {
-                // PAC counts every text-showing operator on the page unless it sits
-                // inside an /Artifact scope. Text in tagged MCIDs, OC-layer BDCs,
-                // other marked scopes, and bare text all count — only artifactal
-                // (decorative) text is excluded.
-                if (artifactDepth > 0) break;
+                // PAC counts every text-showing operator on the page, including
+                // /Artifact-scoped text — verified against Filled_Graduate where
+                // PAC's 3756 count matches raw processPageContent event count and
+                // our previous artifact-excluded 3676 was 80 events short.
                 emitFinding(resolveLang(), (TextRenderInfo) data);
                 break;
             }
