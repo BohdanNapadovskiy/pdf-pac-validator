@@ -6,6 +6,7 @@ import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.pdf.PdfDictionary;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfName;
+import com.itextpdf.kernel.pdf.canvas.CanvasTag;
 import com.itextpdf.kernel.pdf.canvas.parser.data.TextRenderInfo;
 import com.netralabs.Rule;
 import com.netralabs.domain.Severity;
@@ -69,6 +70,11 @@ public class ValidateUnicodeMapping implements Rule {
 
                 @Override
                 public void onShowText(TextRenderInfo tri, BBoxDTO bbox) {
+                    // PAC-parity: skip text whose innermost marked-content tag is an
+                    // Artifact BDC carrying an explicit /Type property (Pagination,
+                    // Page, Layout, Background — classified decorative artifacts).
+                    // Artifact BDCs with /MCID and no /Type are still counted.
+                    if (isTypedArtifact(tri)) return;
                     PdfFont font = tri.getFont();
                     if (font == null) return;
                     PdfDictionary fdict = font.getPdfObject();
@@ -106,5 +112,22 @@ public class ValidateUnicodeMapping implements Rule {
             });
         }
         return out;
+    }
+
+    /**
+     * True iff the innermost marked-content tag surrounding this text-show is an
+     * {@code /Artifact} BDC whose properties dict declares an explicit
+     * {@code /Type} entry (Pagination, Page, Layout, Background). PAC excludes
+     * such classified artifacts from text-tally rows; untyped Artifact BDCs
+     * (e.g. those carrying an {@code /MCID}) still count.
+     */
+    private static boolean isTypedArtifact(TextRenderInfo tri) {
+        List<CanvasTag> h = tri.getCanvasTagHierarchy();
+        if (h == null || h.isEmpty()) return false;
+        CanvasTag innermost = h.get(h.size() - 1);
+        PdfName role = innermost.getRole();
+        if (role == null || !"Artifact".equals(role.getValue())) return false;
+        PdfDictionary props = innermost.getProperties();
+        return props != null && props.get(PdfName.Type) != null;
     }
 }
