@@ -27,9 +27,36 @@ public final class VeraRuleMapping {
       // 7.2-15 / 7.2-41 / 7.2-42 / 7.2-43 handled natively (see UA1_MAP note).
   );
 
+  /**
+   * Checkpoints where PAC displays only ERROR counts — no PASSED tally — even though
+   * veraPDF's pass-2 collection would emit one PASSED per qualifying object. Suppress
+   * those passes so our totals match PAC's error-only rows.
+   *
+   * <p>The three annotation-nesting checkpoints are error-only from vera's side because
+   * their PASSED counts are supplied natively by {@code ValidateAnnotationNesting}, which
+   * walks page {@code /Annots} once and routes by subtype. Letting vera also emit passes
+   * would double-count on top of the native tally.
+   */
+  private static final Set<PDFUACheckpoint> ERROR_ONLY_CHECKPOINTS = Set.of(
+      PDFUACheckpoint.ALTERNATIVE_DESCRIPTION_FOR_ANNOT,
+      PDFUACheckpoint.NESTING_WIDGET_ANNOTATIONS,
+      PDFUACheckpoint.NESTING_LINK_ANNOTATIONS,
+      PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT,
+      // ValidateReferencedExternalObjects emits per-page PASSED for resolved Do
+      // references; vera 7.20-1's pass-2 count would stack on top and inflate
+      // the row (Complex: 13 native + 8 vera = 21 vs PAC's 13).
+      PDFUACheckpoint.REFERENCED_EXTERNAL_OBJECT
+  );
+
+  public static boolean isErrorOnly(PDFUACheckpoint cp) {
+    return ERROR_ONLY_CHECKPOINTS.contains(cp);
+  }
+
   private static final Map<String, PDFUACheckpoint> UA1_MAP = Map.ofEntries(
       // Role mapping
-      Map.entry(P + "7.1-5",   PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE),
+      // 7.1-5 ("non-standard type is neither mapped nor a valid PDF/UA type") is
+      // handled natively by RoleMapValidatorRule, which emits one ERROR per offending
+      // struct element (matching PAC). Vera's per-doc aggregate would double-count.
       Map.entry(P + "7.1-6",   PDFUACheckpoint.CIRCULAR_ROLE_MAPPING),
       Map.entry(P + "7.1-7",   PDFUACheckpoint.ROLE_MAPPING_FOR_STANDARD_STRUCTURE),
 
@@ -79,7 +106,9 @@ public final class VeraRuleMapping {
       // Annotations
       Map.entry(P + "7.18.1-1", PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
       Map.entry(P + "7.18.1-2", PDFUACheckpoint.ALTERNATIVE_DESCRIPTION_FOR_ANNOT),
-      Map.entry(P + "7.18.1-3", PDFUACheckpoint.ALTERNATIVE_NAMES_FORM_FIELDS),
+      // 7.18.1-3 ("form fields shall have TU or widget alt descriptions") is handled
+      // natively by ValidateFormFieldAltNames — vera's pass-2 assertion cap silently
+      // dropped tail-end field passes on multi-field forms (15/31 on Filled_Graduate).
       Map.entry(P + "7.18.2-1", PDFUACheckpoint.TRAP_NET_ANNOTATIONS),
       Map.entry(P + "7.18.4-1", PDFUACheckpoint.NESTING_WIDGET_ANNOTATIONS),
       Map.entry(P + "7.18.4-2", PDFUACheckpoint.FORM_STRUCTURE_ELEMENTS),

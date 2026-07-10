@@ -37,3 +37,8 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Local project docs (not shared) ###
+CLAUDE.md
+IMPLEMENTATION_PLAN.md
+REPORT_REQUIREMENTS.md

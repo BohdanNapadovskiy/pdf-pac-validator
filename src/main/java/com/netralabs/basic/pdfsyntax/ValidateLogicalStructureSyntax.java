@@ -8,42 +8,44 @@ import com.netralabs.report.FindingDTO;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
+
+import static com.netralabs.basic.pdfsyntax.StructUtils.isTaggedPdf;
 import static com.netralabs.basic.pdfsyntax.StructUtils.pageNumOf;
 import static com.netralabs.basic.pdfsyntax.StructUtils.structTreeRoot;
 import static com.netralabs.basic.pdfsyntax.StructUtils.walkStructure;
 import static com.netralabs.domain.PDFUACheckpoint.LOGICAL_STRUCTURE_SYNTAX;
 
+/**
+ * Syntactic well-formedness of struct elements: /S presence and /K child-reference
+ * shape (MCID needs /Pg, MCR/OBJR keys well-formed, /K element type recognized).
+ *
+ * <p>Role validity (standard-or-mapped) is intentionally NOT checked here — that
+ * concern belongs to the "Role mapping" subcategory, driven by
+ * {@code RoleMapValidatorRule} + vera clauses 7.1-5/6/7. PAC reports role
+ * violations under Role mapping, never under Logical structure syntax.
+ */
 public class ValidateLogicalStructureSyntax implements Rule {
-
-    private static final Set<String> STD_ROLES = Set.of(
-            "Document", "Part", "Art", "Sect", "Div", "P", "H", "H1", "H2", "H3", "H4", "H5", "H6",
-            "L", "LI", "Lbl", "LBody", "Table", "TR", "TH", "TD", "THead", "TBody", "TFoot",
-            "Figure", "Caption", "Formula", "Link", "Note", "Annot", "Span", "Quote", "Code",
-            "Reference", "BibEntry", "BlockQuote", "TOC", "TOCI", "Index", "Private",
-            "Ruby", "RB", "RT", "RP", "Warichu", "WP", "WT", "Form"
-    );
 
     @Override
     public List<FindingDTO> run(Context ctx) {
         List<FindingDTO> out = new ArrayList<>();
         PdfDocument pdf = ctx.pdf();
+        // PAC treats logical-structure-syntax rows as NA when the document isn't a
+        // tagged PDF (no /MarkInfo/Marked=true). Skip validation for vestigial struct
+        // trees on untagged docs — they aren't required to be well-formed.
+        if (!isTaggedPdf(pdf)) return out;
         PdfDictionary str = structTreeRoot(pdf);
-        if (str == null) return out; // skip
-
-        PdfDictionary roleMap = str.getAsDictionary(new PdfName("RoleMap"));
+        if (str == null) return out;
 
         walkStructure(pdf, (parent, se) -> {
             int page = pageNumOf(pdf, se);
             String error = null;
 
-            // 1) Role /S must exist and be valid or mapped
+            // 1) /S must exist. Role standardness is Role mapping's job, not ours.
             PdfName role = se.getAsName(PdfName.S);
             if (role == null) {
                 error = "Structure element missing /S role";
-            } else if (!isValidRole(role, roleMap)) {
-                error = "Structure element role is not standard or mapped";
             }
 
             // 2) Validate /K content references (syntax only)
@@ -83,14 +85,6 @@ public class ValidateLogicalStructureSyntax implements Rule {
             }
         });
         return out;
-    }
-
-    private static boolean isValidRole(PdfName role, PdfDictionary roleMap) {
-        String r = role.getValue();
-        if (STD_ROLES.contains(r)) return true;
-        if (roleMap == null) return false;
-        PdfName mapped = roleMap.getAsName(role);
-        return mapped != null && STD_ROLES.contains(mapped.getValue());
     }
 
     private static String checkMcrOrObjr(PdfDictionary d) {

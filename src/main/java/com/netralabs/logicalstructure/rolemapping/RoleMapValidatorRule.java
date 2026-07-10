@@ -17,19 +17,26 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Emits PASSED findings on the three Role mapping checkpoints in PAC's style:
+ * Emits findings on the three Role mapping checkpoints in PAC's style:
  *
  * <ul>
- *   <li><b>Role mapping for standard structure types</b> — one PASSED per struct element whose
- *       raw /S role is already a standard PDF tag (no mapping needed).</li>
- *   <li><b>Role mapping of non-standard structure types</b> — one PASSED per struct element whose
- *       raw /S role is non-standard but is mapped (via the catalog's RoleMap) to a standard tag.</li>
- *   <li><b>Circular role mapping</b> — one PASSED per RoleMap entry whose chain terminates at a
- *       standard tag without revisiting any node.</li>
+ *   <li><b>Role mapping for standard structure types</b> — one finding per RoleMap
+ *       entry: PASSED if the entry's chain resolves to a standard tag, ERROR
+ *       otherwise.</li>
+ *   <li><b>Role mapping of non-standard structure types</b> — dual contribution:
+ *       one finding per struct element (PASSED if its /S role is standard or
+ *       mapped, ERROR otherwise) plus one PASSED per RoleMap entry that resolves
+ *       to a standard tag. PAC's row count = (struct-element count) + (RoleMap
+ *       entries that resolve). Verified on the corpus: CalSAWS 34+16=50, Filled
+ *       213+15=228, Complex 438+0=438.</li>
+ *   <li><b>Circular role mapping</b> — one finding per RoleMap entry: PASSED if
+ *       its chain terminates at a standard tag without revisiting any node,
+ *       ERROR otherwise.</li>
  * </ul>
  *
- * The rule is registered on all three Role mapping checkpoints; a static guard ensures the work
- * runs once per document. veraPDF still drives errors for these checkpoints (7.1-5/6/7).
+ * <p>The rule is registered on all three Role mapping checkpoints; a static guard
+ * ensures the work runs once per document. veraPDF still drives errors for these
+ * checkpoints (7.1-5/6/7).
  */
 public class RoleMapValidatorRule implements Rule {
 
@@ -55,17 +62,26 @@ public class RoleMapValidatorRule implements Rule {
         PdfDictionary str = StructUtils.structTreeRoot(pdf);
         PdfDictionary roleMap = str == null ? null : str.getAsDictionary(new PdfName("RoleMap"));
 
-        // 1) Per RoleMap entry: emit one finding per entry on both "for standard" and
-        //    "circular role mapping" checkpoints. PAC reports these counts as
-        //    "16 entries that map to a standard tag" + "16 entries with no cycle".
+        // 1) Per RoleMap entry: emit one finding per entry on the "for standard",
+        //    "non-standard", and "circular role mapping" checkpoints. PAC reports
+        //    these counts as (e.g. CalSAWS) 16/16/16 — 16 RoleMap entries each
+        //    contribute to all three rows. The non-standard row also gets a per-
+        //    struct-element contribution from step 2 below; PAC's total is
+        //    (per-element count) + (RoleMap-entry count).
         if (roleMap != null) {
             for (PdfName key : roleMap.keySet()) {
+                boolean resolvesStd = resolvesToStandard(key.getValue(), roleMap);
                 // "For standard structure types": each entry resolves to a standard tag.
-                if (resolvesToStandard(key.getValue(), roleMap)) {
+                if (resolvesStd) {
                     out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.ROLE_MAPPING_FOR_STANDARD_STRUCTURE, 0, null));
                 } else {
                     out.add(new FindingDTO(Severity.ERROR, PDFUACheckpoint.ROLE_MAPPING_FOR_STANDARD_STRUCTURE, 0, null,
                             "RoleMap entry '" + key.getValue() + "' does not resolve to a standard tag"));
+                }
+                // "Non-standard structure types": each entry itself counts (the map
+                // is the mechanism that adapts non-standard tags to standard ones).
+                if (resolvesStd) {
+                    out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE, 0, null));
                 }
                 // Circular role mapping: each entry chain is acyclic.
                 if (isCircular(key, roleMap)) {
@@ -77,16 +93,24 @@ public class RoleMapValidatorRule implements Rule {
             }
         }
 
-        // 2) Per struct element: emit one PASSED on "of non-standard structure types".
-        //    PAC reports a count close to the number of struct elements (1077 in the
-        //    reference document; we walk the same tree).
-        StructWalk.walk(pdf, elem -> {
-            PdfName sName = elem.getPdfObject().getAsName(PdfName.S);
+        // 2) Per struct element (dict-level DFS — works even when iText's typed API
+        //    can't traverse the tree, e.g. malformed docs with non-standard roles):
+        //    PASSED if the /S role is standard or mapped to a standard tag; ERROR
+        //    if it's non-standard and unmapped (matches PAC's per-element output).
+        final PdfDictionary rmapForWalk = roleMap;
+        StructUtils.walkStructure(pdf, (parent, se) -> {
+            PdfName sName = se.getAsName(PdfName.S);
             if (sName == null) return;
             String raw = sName.getValue();
-            int page = StructUtils.pageNumOf(pdf, elem.getPdfObject());
-            if (STD_ROLES.contains(raw) || resolvesToStandard(raw, roleMap)) {
-                out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE, page, null));
+            int page = StructUtils.pageNumOf(pdf, se);
+            if (STD_ROLES.contains(raw) || resolvesToStandard(raw, rmapForWalk)) {
+                out.add(new FindingDTO(Severity.PASSED,
+                        PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE, page, null));
+            } else {
+                out.add(new FindingDTO(Severity.ERROR,
+                        PDFUACheckpoint.ROLE_MAPPING_FOR_NON_STANDARD_STRUCTURE, page, null,
+                        "Non-standard structure type \"" + raw
+                                + "\" is neither mapped to a standard structure type nor a valid PDF/UA structure type"));
             }
         });
 

@@ -24,10 +24,11 @@ public class ContentListener  implements IEventListener {
 
     private final Deque<String> langStack = new ArrayDeque<>();
     private final Deque<Boolean> langPushedStack = new ArrayDeque<>();
+    private final Deque<Boolean> artifactPushedStack = new ArrayDeque<>();
     private final Set<Integer> seenMcids = new HashSet<>();
 
     private int markedDepth = 0;
-    private boolean inArtifact = false;
+    private int artifactDepth = 0;
     private Integer currentMcid = null;
 
     // For untagged content counting
@@ -39,7 +40,7 @@ public class ContentListener  implements IEventListener {
     }
     void beginMarked(String tag, PdfDictionary props) {
         markedDepth++;
-        inArtifact = "Artifact".equals(tag);
+        if ("Artifact".equals(tag)) artifactDepth++;
         currentMcid = null;
         blockCounted = false; // fresh block
         if (props != null) {
@@ -55,15 +56,19 @@ public class ContentListener  implements IEventListener {
             if (l != null && !l.isBlank()) { langStack.push(l); pushed = true; }
         }
         langPushedStack.push(pushed);
+        // Record whether this BMC/BDC frame is an /Artifact so endMarked can decrement.
+        artifactPushedStack.push("Artifact".equals(tag));
     }
 
     void endMarked() {
         if (!langPushedStack.isEmpty() && Boolean.TRUE.equals(langPushedStack.pop())) {
             if (!langStack.isEmpty()) langStack.pop();
         }
+        if (!artifactPushedStack.isEmpty() && Boolean.TRUE.equals(artifactPushedStack.pop())) {
+            artifactDepth = Math.max(0, artifactDepth - 1);
+        }
         markedDepth = Math.max(0, markedDepth - 1);
         if (markedDepth == 0) {
-            inArtifact = false;
             currentMcid = null;
             blockCounted = false;
         }
@@ -74,11 +79,10 @@ public class ContentListener  implements IEventListener {
     public void eventOccurred(IEventData data, EventType type) {
         switch (type) {
             case RENDER_TEXT: {
-                // PAC's "Natural language of text objects" only counts tagged real content:
-                //  - artifacts are excluded (no lang requirement per PDF/UA)
-                //  - untagged bare text is reported by a different checkpoint
-                if (inArtifact) break;
-                if (currentMcid == null) break;
+                // PAC counts every text-showing operator on the page, including
+                // /Artifact-scoped text — verified against Filled_Graduate where
+                // PAC's 3756 count matches raw processPageContent event count and
+                // our previous artifact-excluded 3676 was 80 events short.
                 emitFinding(resolveLang(), (TextRenderInfo) data);
                 break;
             }

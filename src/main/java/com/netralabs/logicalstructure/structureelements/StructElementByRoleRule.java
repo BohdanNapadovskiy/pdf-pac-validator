@@ -1,8 +1,10 @@
 package com.netralabs.logicalstructure.structureelements;
 
+import com.itextpdf.kernel.pdf.PdfArray;
 import com.itextpdf.kernel.pdf.PdfDictionary;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfName;
+import com.itextpdf.kernel.pdf.PdfObject;
 import com.itextpdf.kernel.pdf.PdfString;
 import com.itextpdf.kernel.pdf.tagging.IStructureNode;
 import com.itextpdf.kernel.pdf.tagging.PdfStructElem;
@@ -83,32 +85,100 @@ public class StructElementByRoleRule implements Rule {
     );
 
     private static final PdfName ID = new PdfName("ID");
-    private static final PdfName CONTENTS = new PdfName("Contents");
 
     /**
      * PAC's "'X' structure elements" row shows a WARNING (orange triangle) per element
-     * when that element lacks an accessibility attribute that PAC treats as required.
+     * when that element fails a structural-quality check that PAC applies per-role.
+     * These checks are DISTINCT from the ISO 14289-1 compliance rules on the top-level
+     * Structure Elements row (Notes / Annotations / Figures / Tables) — a Figure with
+     * proper {@code /Alt} still gets flagged here if it lacks a Layout {@code /Placement}.
      * <ul>
-     *   <li>{@code Note} — must carry {@code /ID}. Missing → WARNING.</li>
-     *   <li>{@code Link} — must carry an alternative description via {@code /Alt} or
-     *       {@code /Contents}. Missing both → WARNING.</li>
-     *   <li>{@code Figure} — must carry {@code /ActualText} in addition to {@code /Alt}.
-     *       Missing {@code /ActualText} → WARNING (matches PAC's per-Figure flag even
-     *       when {@code /Alt} is present).</li>
+     *   <li>{@code Note} — must carry {@code /ID}. Missing → WARNING (§7.9-1).</li>
+     *   <li>{@code Link} — its {@code /K} chain must reach an {@code OBJR} whose referenced
+     *       object is a {@code /Link} annotation. Bare-MCID Links (no annotation wrap)
+     *       → WARNING (§7.18.5).</li>
+     *   <li>{@code Figure} — its Layout attribute owner ({@code /A} with {@code /O=/Layout})
+     *       must declare an explicit {@code /Placement}. Figures with default (implicit
+     *       Inline) placement → WARNING; PAC treats missing {@code /Placement} as ambiguous
+     *       figure sizing even when {@code /Alt} is present.</li>
+     *   <li>{@code Document} — a Document nested inside another Document (raw {@code /S}
+     *       or role-mapped) is flagged. CalSAWS's Workbook-remapped-to-Document sits
+     *       under the real root Document → WARNING for the inner element.</li>
      * </ul>
      */
-    private static Severity severityFor(String role, PdfDictionary d) {
+    private static Severity severityFor(String role, PdfDictionary d, PdfDocument pdf) {
         return switch (role) {
             case "Note" -> nonEmpty(d.getAsString(ID)) ? Severity.PASSED : Severity.WARNING;
-            case "Link" -> (nonEmpty(d.getAsString(PdfName.Alt))
-                    || nonEmpty(d.getAsString(CONTENTS))) ? Severity.PASSED : Severity.WARNING;
-            case "Figure" -> nonEmpty(d.getAsString(PdfName.ActualText)) ? Severity.PASSED : Severity.WARNING;
+            case "Link" -> linkWrapsAnnotation(d) ? Severity.PASSED : Severity.WARNING;
+            case "Figure" -> hasLayoutPlacement(d) ? Severity.PASSED : Severity.WARNING;
+            case "Document" -> hasDocumentAncestor(d, pdf) ? Severity.WARNING : Severity.PASSED;
             default -> Severity.PASSED;
         };
     }
 
+    /**
+     * True iff any ancestor via the {@code /P} chain resolves to a {@code Document}
+     * struct role — either raw {@code /S=Document} or a role-mapped equivalent. Walks
+     * up until it hits the StructTreeRoot or an already-visited node (cycle guard).
+     */
+    private static boolean hasDocumentAncestor(PdfDictionary d, PdfDocument pdf) {
+        PdfDictionary roleMap = pdf.getStructTreeRoot() != null
+                ? pdf.getStructTreeRoot().getRoleMap() : null;
+        java.util.Set<PdfDictionary> seen = new java.util.HashSet<>();
+        PdfDictionary cur = d.getAsDictionary(PdfName.P);
+        while (cur != null && seen.add(cur)) {
+            if (PdfName.StructTreeRoot.equals(cur.getAsName(PdfName.Type))) return false;
+            PdfName s = cur.getAsName(PdfName.S);
+            if (s != null) {
+                String raw = s.getValue();
+                if ("Document".equals(raw)) return true;
+                if (roleMap != null) {
+                    PdfName mapped = roleMap.getAsName(new PdfName(raw));
+                    if (mapped != null && "Document".equals(mapped.getValue())) return true;
+                }
+            }
+            cur = cur.getAsDictionary(PdfName.P);
+        }
+        return false;
+    }
+
     private static boolean nonEmpty(PdfString s) {
         return s != null && !s.getValue().isEmpty();
+    }
+
+    /** True iff the struct element's {@code /K} chain contains an OBJR referencing a Link annotation. */
+    private static boolean linkWrapsAnnotation(PdfDictionary d) {
+        PdfObject k = d.get(PdfName.K);
+        if (k instanceof PdfDictionary kd) return isLinkObjr(kd);
+        if (k instanceof PdfArray arr) {
+            for (int i = 0; i < arr.size(); i++) {
+                if (arr.get(i) instanceof PdfDictionary kd && isLinkObjr(kd)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLinkObjr(PdfDictionary kd) {
+        if (!PdfName.OBJR.equals(kd.getAsName(PdfName.Type))) return false;
+        PdfDictionary obj = kd.getAsDictionary(PdfName.Obj);
+        return obj != null && PdfName.Link.equals(obj.getAsName(PdfName.Subtype));
+    }
+
+    /** True iff any Layout attribute owner declares an explicit {@code /Placement} entry. */
+    private static boolean hasLayoutPlacement(PdfDictionary d) {
+        PdfObject a = d.get(PdfName.A);
+        if (a instanceof PdfDictionary ad) return isLayoutWithPlacement(ad);
+        if (a instanceof PdfArray arr) {
+            for (int i = 0; i < arr.size(); i++) {
+                if (arr.get(i) instanceof PdfDictionary ad && isLayoutWithPlacement(ad)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLayoutWithPlacement(PdfDictionary attrDict) {
+        return PdfName.Layout.equals(attrDict.getAsName(PdfName.O))
+                && attrDict.get(PdfName.Placement) != null;
     }
 
     // Guard: only the first instance per document does the walk; later instances return empty.
@@ -129,7 +199,7 @@ public class StructElementByRoleRule implements Rule {
             PDFUACheckpoint cp = ROLE_TO_CHECKPOINT.get(role);
             int page = StructUtils.pageNumOf(pdf, elem.getPdfObject());
             if (cp != null) {
-                Severity sev = severityFor(role, elem.getPdfObject());
+                Severity sev = severityFor(role, elem.getPdfObject(), pdf);
                 out.add(new FindingDTO(sev, cp, page, null));
             }
 
