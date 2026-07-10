@@ -38,6 +38,9 @@ public class ValidateUseOfEitherHOrHn implements Rule {
         });
 
         // Document-level check (mixing H and Hn is one global fact) — one finding per document.
+        // Only emit when the doc actually uses at least one heading role — PAC shows this
+        // row as N/A (dashed) when no headings exist.
+        if (!usedH[0] && !usedHn[0]) return;
         if (usedH[0] && usedHn[0]) {
             out.add(new FindingDTO(Severity.ERROR, USE_OF_EITHER, 0, null,
                     "Document mixes H and Hn heading roles"));

@@ -195,12 +195,10 @@ public enum WCAGCriterion {
             "Tab order for pages with annotations", PDFUACheckpoint.TAB_ORDER_PAGES),
     O_2_4_4("2 Operable", "2.4 Navigable", "2.4.4 Link Purpose (In Context)", null),
     O_2_4_5("2 Operable", "2.4 Navigable", "2.4.5 Multiple Ways", null),
-    // 2.4.6 sources the four heading-structure rules: same checks PDF/UA fires for headings.
-    O_2_4_6("2 Operable", "2.4 Navigable", "2.4.6 Headings and Labels", null,
-            PDFUACheckpoint.USE_OF_EITHER,
-            PDFUACheckpoint.FIRST_HEADING_LEVEL,
-            PDFUACheckpoint.NESTING_HEADING_LEVEL,
-            PDFUACheckpoint.H_STRUCTURE_ELEMENTS_WITHIN),
+    // 2.4.6 is displayed as N/A (dashed) by PAC across our corpus. The heading-structure
+    // rules (USE_OF_EITHER, FIRST_HEADING_LEVEL, NESTING_HEADING_LEVEL, H_STRUCTURE_ELEMENTS_WITHIN)
+    // are already surfaced under 4.1.1 Parsing where PAC actually shows them.
+    O_2_4_6("2 Operable", "2.4 Navigable", "2.4.6 Headings and Labels", null),
     O_2_4_7("2 Operable", "2.4 Navigable", "2.4.7 Focus Visible", null),
 
     O_2_5_1("2 Operable", "2.5 Input Modalities", "2.5.1 Pointer Gestures", null),
@@ -347,7 +345,42 @@ public enum WCAGCriterion {
             "\"WT\" structure elements", PDFUACheckpoint.WT_STRUCTURE_ELEMENTS),
     R_4_1_1_WP("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
             "\"WP\" structure elements", PDFUACheckpoint.WP_STRUCTURE_ELEMENTS),
-    // 4.1.1 Annotation-nesting leaves
+    // Missing per-role leaves PAC emits under 4.1.1 Parsing: table row/cell types,
+    // list containers, quotes, references, annotation wrappers, form and figure wrappers.
+    R_4_1_1_TABLE("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"Table\" structure elements", PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
+    R_4_1_1_TR("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"TR\" structure elements", PDFUACheckpoint.TR_STRUCTURE_ELEMENTS),
+    R_4_1_1_TH("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"TH\" structure elements", PDFUACheckpoint.TH_STRUCTURE_ELEMENTS),
+    R_4_1_1_TD("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"TD\" structure elements", PDFUACheckpoint.TD_STRUCTURE_ELEMENTS),
+    R_4_1_1_THEAD("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"THead\" structure elements", PDFUACheckpoint.THEAD_STRUCTURE_ELEMENTS),
+    R_4_1_1_TBODY("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"TBody\" structure elements", PDFUACheckpoint.TBODY_STRUCTURE_ELEMENTS),
+    R_4_1_1_TFOOT("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"TFoot\" structure elements", PDFUACheckpoint.TFOOT_STRUCTURE_ELEMENTS),
+    R_4_1_1_L("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"L\" structure elements", PDFUACheckpoint.L_STRUCTURE_ELEMENTS),
+    R_4_1_1_LI("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"LI\" structure elements", PDFUACheckpoint.LI_STRUCTURE_ELEMENTS),
+    R_4_1_1_QUOTE("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"Quote\" structure elements", PDFUACheckpoint.QUOTE_STRUCTURE_ELEMENTS),
+    R_4_1_1_REFERENCE("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"Reference\" structure elements", PDFUACheckpoint.REFERENCE_STRUCTURE_ELEMENTS),
+    R_4_1_1_ANNOT("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"Annot\" structure elements", PDFUACheckpoint.ANNOT_STRUCTURE_ELEMENTS),
+    R_4_1_1_FORM("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"Form\" structure elements", PDFUACheckpoint.FORM_STRUCTURE_ELEMENTS),
+    R_4_1_1_FORMULA("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"Formula\" structure elements", PDFUACheckpoint.FORMULA_STRUCTURE_ELEMENTS),
+    R_4_1_1_FIGURE("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
+            "\"Figure\" structure elements", PDFUACheckpoint.FIGURE_STRUCTURE_ELEMENTS),
+    // 4.1.1 Annotation-nesting leaves. PAC's Widget-nesting row on WCAG shows errors
+    // only (unlike PDF/UA Structure Elements > Annotations aggregate which counts
+    // native per-annotation passes) — 31P/31E on PDF/UA becomes 0P/31E on WCAG.
+    // The `errorsOnly` flag drops native passes when aggregating into WCAG.
     R_4_1_1_NEST_ANNOT(
             "4 Robust", "4.1 Compatible", "4.1.1 Parsing",
             "Nesting of annotations in Annot structure elements",
@@ -359,6 +392,7 @@ public enum WCAGCriterion {
     R_4_1_1_NEST_WIDGET(
             "4 Robust", "4.1 Compatible", "4.1.1 Parsing",
             "Nesting of \"Widget\" annotations inside a \"Form\" structure elements",
+            true /* errorsOnly */,
             PDFUACheckpoint.NESTING_WIDGET_ANNOTATIONS),
     R_4_1_1_UNIQUE_ID_NOTE(
             "4 Robust", "4.1 Compatible", "4.1.1 Parsing",
@@ -375,13 +409,29 @@ public enum WCAGCriterion {
     /** null means this criterion has no named sub-leaves in PAC. */
     private final String leaf;
     private final List<PDFUACheckpoint> sources;
+    /**
+     * When true, {@link com.netralabs.report.wcag.WCAGReportBuilder} drops PASSED findings
+     * from the source checkpoints when aggregating into this criterion — the row is
+     * error-only (dashes in the "Passed" column). Used when a shared {@link PDFUACheckpoint}
+     * carries native per-object passes that PAC includes in PDF/UA rows but excludes from
+     * the corresponding WCAG row (e.g. Widget-nesting annotations).
+     */
+    private final boolean errorsOnly;
 
     WCAGCriterion(String principle, String guideline, String criterion, String leaf,
                   PDFUACheckpoint... sources) {
+        this(principle, guideline, criterion, leaf, false, sources);
+    }
+
+    WCAGCriterion(String principle, String guideline, String criterion, String leaf,
+                  boolean errorsOnly, PDFUACheckpoint... sources) {
         this.principle = principle;
         this.guideline = guideline;
         this.criterion = criterion;
         this.leaf = leaf;
         this.sources = List.of(sources);
+        this.errorsOnly = errorsOnly;
     }
+
+    public boolean isErrorsOnly() { return errorsOnly; }
 }
