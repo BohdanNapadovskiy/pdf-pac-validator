@@ -153,10 +153,12 @@ public enum WCAGCriterion {
     // 1.4 Distinguishable
     P_1_4_1("1 Perceivable", "1.4 Distinguishable", "1.4.1 Use of Color", null),
     P_1_4_2("1 Perceivable", "1.4 Distinguishable", "1.4.2 Audio Control", null),
-    // 1.4.3 Contrast (Minimum) → one leaf "Contrast of text" (rendering-based, not implemented in option a)
+    // 1.4.3 Contrast (Minimum) → one leaf "Contrast of text" — sourced from the
+    // WCAG-only PDFUACheckpoint.CONTRAST_OF_TEXT which measures WCAG luminance
+    // contrast between text fill color and page background per text-show event.
     P_1_4_3_TEXT_CONTRAST(
             "1 Perceivable", "1.4 Distinguishable", "1.4.3 Contrast (Minimum)",
-            "Contrast of text"),
+            "Contrast of text", PDFUACheckpoint.CONTRAST_OF_TEXT),
     P_1_4_4("1 Perceivable", "1.4 Distinguishable", "1.4.4 Resize text", null),
     P_1_4_5("1 Perceivable", "1.4 Distinguishable", "1.4.5 Images of Text", null),
     P_1_4_10("1 Perceivable", "1.4 Distinguishable", "1.4.10 Reflow", null),

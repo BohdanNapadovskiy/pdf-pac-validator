@@ -791,7 +791,19 @@ public enum PDFUACheckpoint {
             "",
             TabOrderByPageIdentifier::new,
             Phase.PAGE
+    ),
 
+    // WCAG-only checkpoint — not shown in the PDF/UA report (ReportBuilder filters
+    // categories != "PDF/UA"). Feeds WCAG 1.4.3 Contrast (Minimum) → "Contrast of text"
+    // via WCAGCriterion.P_1_4_3_TEXT_CONTRAST source mapping.
+    CONTRAST_OF_TEXT(
+            "WCAG",
+            "1 Perceivable",
+            "1.4.3 Contrast (Minimum)",
+            "Contrast of text",
+            "",
+            com.netralabs.wcag.contrast.ValidateContrastOfText::new,
+            Phase.DOCUMENT
     );
 
 
