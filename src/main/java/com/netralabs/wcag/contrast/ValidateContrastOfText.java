@@ -6,17 +6,25 @@ import com.itextpdf.kernel.colors.DeviceCmyk;
 import com.itextpdf.kernel.colors.DeviceGray;
 import com.itextpdf.kernel.colors.DeviceRgb;
 import com.itextpdf.kernel.geom.LineSegment;
+import com.itextpdf.kernel.geom.Matrix;
 import com.itextpdf.kernel.geom.Point;
 import com.itextpdf.kernel.geom.Subpath;
+import com.itextpdf.kernel.geom.Vector;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfName;
 import com.itextpdf.kernel.pdf.canvas.CanvasTag;
 import com.itextpdf.kernel.pdf.canvas.parser.EventType;
 import com.itextpdf.kernel.pdf.canvas.parser.PdfCanvasProcessor;
 import com.itextpdf.kernel.pdf.canvas.parser.data.IEventData;
+import com.itextpdf.kernel.pdf.canvas.parser.data.ImageRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.data.PathRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.data.TextRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.listener.IEventListener;
+import com.itextpdf.kernel.pdf.xobject.PdfImageXObject;
+
+import java.awt.image.BufferedImage;
+import java.util.HashMap;
+import java.util.Map;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
 import com.netralabs.domain.PDFUACheckpoint;
@@ -80,10 +88,58 @@ public class ValidateContrastOfText implements Rule {
         return out;
     }
 
-    /** Filled-rectangle paint record for the background painter model. */
-    private record Paint(double minX, double minY, double maxX, double maxY, double[] rgb) {
+    /** Paint record for the background painter model. Either a filled rectangle
+     * (constant colour, {@code img} null) or an image (pixel-sampled per lookup). */
+    private static final class Paint {
+        final double minX, minY, maxX, maxY;
+        /** Non-null for filled rectangles; the whole area shares this colour. */
+        final double[] rgb;
+        /** Non-null for images; the width/height in pixels for coordinate mapping. */
+        final BufferedImage img;
+        final Matrix ctm;
+
+        Paint(double minX, double minY, double maxX, double maxY, double[] rgb) {
+            this(minX, minY, maxX, maxY, rgb, null, null);
+        }
+
+        Paint(double minX, double minY, double maxX, double maxY, BufferedImage img, Matrix ctm) {
+            this(minX, minY, maxX, maxY, null, img, ctm);
+        }
+
+        private Paint(double minX, double minY, double maxX, double maxY,
+                      double[] rgb, BufferedImage img, Matrix ctm) {
+            this.minX = minX; this.minY = minY; this.maxX = maxX; this.maxY = maxY;
+            this.rgb = rgb; this.img = img; this.ctm = ctm;
+        }
+
         boolean covers(double x0, double y0, double x1, double y1) {
             return minX <= x0 && minY <= y0 && maxX >= x1 && maxY >= y1;
+        }
+
+        /** Sample the paint's colour at the text bbox centre. */
+        double[] sample(double cx, double cy) {
+            if (rgb != null) return rgb;
+            // Map (cx, cy) from user-space to image pixel coords using inverse CTM.
+            // Image occupies unit square [0,1]x[0,1] transformed by CTM.
+            // Instead of full inverse, approximate via normalized position in the
+            // image's bounding rect — valid for axis-aligned images (no rotation).
+            double u = (cx - minX) / (maxX - minX);
+            double v = (cy - minY) / (maxY - minY);
+            u = clamp01(u);
+            v = clamp01(v);
+            int px = (int) Math.round(u * (img.getWidth() - 1));
+            // Image origin is top-left; PDF origin bottom-left. Flip v.
+            int py = (int) Math.round((1.0 - v) * (img.getHeight() - 1));
+            int argb;
+            try {
+                argb = img.getRGB(px, py);
+            } catch (Exception e) {
+                return new double[]{1, 1, 1};
+            }
+            int r = (argb >> 16) & 0xFF;
+            int g = (argb >> 8) & 0xFF;
+            int b = argb & 0xFF;
+            return new double[]{r / 255.0, g / 255.0, b / 255.0};
         }
     }
 
@@ -91,6 +147,9 @@ public class ValidateContrastOfText implements Rule {
         private final int pageNum;
         private final List<FindingDTO> out;
         private final List<Paint> paintLog = new ArrayList<>();
+        /** Cache of decoded BufferedImages keyed by their PdfImageXObject identity — an
+         *  image referenced N times decodes once. */
+        private final Map<PdfImageXObject, BufferedImage> imageCache = new HashMap<>();
 
         ContrastListener(int pageNum, List<FindingDTO> out) {
             this.pageNum = pageNum;
@@ -99,13 +158,17 @@ public class ValidateContrastOfText implements Rule {
 
         @Override
         public Set<EventType> getSupportedEvents() {
-            return EnumSet.of(EventType.RENDER_TEXT, EventType.RENDER_PATH);
+            return EnumSet.of(EventType.RENDER_TEXT, EventType.RENDER_PATH, EventType.RENDER_IMAGE);
         }
 
         @Override
         public void eventOccurred(IEventData data, EventType type) {
             if (type == EventType.RENDER_PATH) {
                 onPath((PathRenderInfo) data);
+                return;
+            }
+            if (type == EventType.RENDER_IMAGE) {
+                onImage((ImageRenderInfo) data);
                 return;
             }
             if (type == EventType.RENDER_TEXT) {
@@ -121,6 +184,20 @@ public class ValidateContrastOfText implements Rule {
             double[] rgb = toRgb(pi.getFillColor());
             if (rgb == null) return;
             paintLog.add(new Paint(bbox[0], bbox[1], bbox[2], bbox[3], rgb));
+        }
+
+        private void onImage(ImageRenderInfo ii) {
+            Matrix ctm = ii.getImageCtm();
+            if (ctm == null) return;
+            double[] bbox = imageBbox(ctm);
+            if (bbox == null) return;
+            PdfImageXObject img = ii.getImage();
+            if (img == null) return;
+            BufferedImage bi = imageCache.computeIfAbsent(img, k -> {
+                try { return k.getBufferedImage(); } catch (Exception e) { return null; }
+            });
+            if (bi == null) return;
+            paintLog.add(new Paint(bbox[0], bbox[1], bbox[2], bbox[3], bi, ctm));
         }
 
         private void onText(TextRenderInfo tri) {
@@ -149,12 +226,28 @@ public class ValidateContrastOfText implements Rule {
 
         /** Walk the paint log newest-to-oldest and return the topmost covering fill; white if none. */
         private double[] backgroundAt(double[] textBox) {
+            double cx = (textBox[0] + textBox[2]) / 2.0;
+            double cy = (textBox[1] + textBox[3]) / 2.0;
             for (int i = paintLog.size() - 1; i >= 0; i--) {
                 Paint p = paintLog.get(i);
-                if (p.covers(textBox[0], textBox[1], textBox[2], textBox[3])) return p.rgb;
+                if (p.covers(textBox[0], textBox[1], textBox[2], textBox[3])) return p.sample(cx, cy);
             }
             return new double[]{1.0, 1.0, 1.0};
         }
+    }
+
+    /** Bbox of an image transformed by its CTM. The image occupies the unit square in
+     * user-space via the transformation [[a b 0][c d 0][e f 1]]. */
+    private static double[] imageBbox(Matrix ctm) {
+        float[][] corners = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        double[] xs = new double[4];
+        double[] ys = new double[4];
+        for (int i = 0; i < 4; i++) {
+            Vector v = new Vector(corners[i][0], corners[i][1], 1).cross(ctm);
+            xs[i] = v.get(0);
+            ys[i] = v.get(1);
+        }
+        return bounds(xs, ys);
     }
 
     /** Text bbox from the render info's baseline/ascent/descent segments. */
