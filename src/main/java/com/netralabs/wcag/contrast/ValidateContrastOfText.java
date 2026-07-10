@@ -213,6 +213,14 @@ public class ValidateContrastOfText implements Rule {
             if (textBox == null) return;
             double[] bgRgb = backgroundAt(textBox);
 
+
+            // Skip pure-white text on pure-white background — visually invisible
+            // form-decoration text (Filled_Graduate has 549 such events used as
+            // filler between form fields). PAC excludes these from the 1.4.3 tally
+            // rather than flagging as failures. Tolerance is strict (channels
+            // > 0.98) so real light text over image backgrounds still counts.
+            if (isPureWhite(fillRgb) && isPureWhite(bgRgb)) return;
+
             double ratio = contrastRatio(fillRgb, bgRgb);
             double threshold = isLargeText(tri) ? THRESHOLD_LARGE : THRESHOLD_REGULAR;
 
@@ -363,6 +371,12 @@ public class ValidateContrastOfText implements Rule {
 
     private static double channelLuminance(double c) {
         return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    /** True iff every channel is above 0.98 — treats DeviceGray(1.0), DeviceRgb(1,1,1),
+     *  and near-white image samples uniformly as pure white. */
+    private static boolean isPureWhite(double[] rgb) {
+        return rgb[0] > 0.98 && rgb[1] > 0.98 && rgb[2] > 0.98;
     }
 
     /** WCAG contrast ratio (L1 + 0.05) / (L2 + 0.05), L1 the lighter of the two. */
