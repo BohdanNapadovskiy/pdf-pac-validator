@@ -82,10 +82,37 @@ public class ValidateContrastOfText implements Rule {
         List<FindingDTO> out = new ArrayList<>();
         PdfDocument pdf = ctx.pdf();
         for (int page = 1; page <= pdf.getNumberOfPages(); page++) {
-            PdfCanvasProcessor proc = new PdfCanvasProcessor(new ContrastListener(page, out));
+            List<double[]> widgetRects = collectWidgetRects(pdf.getPage(page));
+            PdfCanvasProcessor proc = new PdfCanvasProcessor(
+                    new ContrastListener(page, out, widgetRects));
             proc.processPageContent(pdf.getPage(page));
         }
         return out;
+    }
+
+    /** Rectangles of every Widget annotation on the page (from {@code /Rect}). Used to
+     *  skip text painted at those locations — form field labels/values are drawn by
+     *  the viewer from the widget's appearance stream and PAC excludes them from the
+     *  1.4.3 tally to avoid double-counting text that appears twice on-screen. */
+    private static List<double[]> collectWidgetRects(com.itextpdf.kernel.pdf.PdfPage page) {
+        List<double[]> rects = new ArrayList<>();
+        com.itextpdf.kernel.pdf.PdfArray annots = page.getPdfObject()
+                .getAsArray(PdfName.Annots);
+        if (annots == null) return rects;
+        for (int i = 0; i < annots.size(); i++) {
+            com.itextpdf.kernel.pdf.PdfObject o = annots.get(i);
+            if (!(o instanceof com.itextpdf.kernel.pdf.PdfDictionary d)) continue;
+            if (!PdfName.Widget.equals(d.getAsName(PdfName.Subtype))) continue;
+            com.itextpdf.kernel.pdf.PdfArray r = d.getAsArray(PdfName.Rect);
+            if (r == null || r.size() != 4) continue;
+            double x0 = r.getAsNumber(0).doubleValue();
+            double y0 = r.getAsNumber(1).doubleValue();
+            double x1 = r.getAsNumber(2).doubleValue();
+            double y1 = r.getAsNumber(3).doubleValue();
+            rects.add(new double[]{Math.min(x0, x1), Math.min(y0, y1),
+                    Math.max(x0, x1), Math.max(y0, y1)});
+        }
+        return rects;
     }
 
     /** Paint record for the background painter model. Either a filled rectangle
@@ -161,10 +188,12 @@ public class ValidateContrastOfText implements Rule {
         /** Cache of decoded BufferedImages keyed by their PdfImageXObject identity — an
          *  image referenced N times decodes once. */
         private final Map<PdfImageXObject, BufferedImage> imageCache = new HashMap<>();
+        private final List<double[]> widgetRects;
 
-        ContrastListener(int pageNum, List<FindingDTO> out) {
+        ContrastListener(int pageNum, List<FindingDTO> out, List<double[]> widgetRects) {
             this.pageNum = pageNum;
             this.out = out;
+            this.widgetRects = widgetRects;
         }
 
         @Override
@@ -223,11 +252,11 @@ public class ValidateContrastOfText implements Rule {
             double[] textBox = textBbox(tri);
             if (textBox == null) return;
 
-            // Kerning-split merge attempts (per-glyph -> per-run) produced counts far
-            // below PAC's on our corpus and were removed. Filled_Graduate's residual
-            // ~700 event over-count vs PAC likely comes from PAC's per-Tj-operator
-            // event granularity that iText's per-glyph-cluster splitting can't
-            // easily reconstruct here.
+            // Skip text painted inside a Widget annotation's /Rect — the viewer draws
+            // the widget's own appearance-stream text at the same location, so any
+            // content-stream fallback text there is a duplicate. PAC excludes those
+            // to avoid counting the same on-screen text twice.
+            if (insideAnyWidget(textBox)) return;
 
             double[] bgRgb = backgroundAt(textBox, fillRgb);
 
@@ -248,6 +277,18 @@ public class ValidateContrastOfText implements Rule {
                 out.add(new FindingDTO(Severity.ERROR, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, null,
                         String.format("Text contrast %.2f:1 is below WCAG minimum %.1f:1", ratio, threshold)));
             }
+        }
+
+        /** True iff the text bbox intersects any Widget annotation's /Rect. Any
+         *  overlap counts — form-field labels sometimes extend slightly outside the
+         *  widget /Rect boundary and PAC still drops them from the 1.4.3 tally. */
+        private boolean insideAnyWidget(double[] textBox) {
+            for (double[] w : widgetRects) {
+                if (textBox[2] < w[0] || textBox[0] > w[2]) continue;
+                if (textBox[3] < w[1] || textBox[1] > w[3]) continue;
+                return true;
+            }
+            return false;
         }
 
         /** Walk the paint log newest-to-oldest and return the topmost covering paint's
