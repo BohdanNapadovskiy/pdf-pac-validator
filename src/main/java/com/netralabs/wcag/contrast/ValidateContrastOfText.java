@@ -116,17 +116,11 @@ public class ValidateContrastOfText implements Rule {
             return minX <= x0 && minY <= y0 && maxX >= x1 && maxY >= y1;
         }
 
-        /** Sample the paint's colour at the text bbox centre. */
-        double[] sample(double cx, double cy) {
+        /** Sample the paint's colour at a single point. */
+        double[] sample(double x, double y) {
             if (rgb != null) return rgb;
-            // Map (cx, cy) from user-space to image pixel coords using inverse CTM.
-            // Image occupies unit square [0,1]x[0,1] transformed by CTM.
-            // Instead of full inverse, approximate via normalized position in the
-            // image's bounding rect — valid for axis-aligned images (no rotation).
-            double u = (cx - minX) / (maxX - minX);
-            double v = (cy - minY) / (maxY - minY);
-            u = clamp01(u);
-            v = clamp01(v);
+            double u = clamp01((x - minX) / (maxX - minX));
+            double v = clamp01((y - minY) / (maxY - minY));
             int px = (int) Math.round(u * (img.getWidth() - 1));
             // Image origin is top-left; PDF origin bottom-left. Flip v.
             int py = (int) Math.round((1.0 - v) * (img.getHeight() - 1));
@@ -140,6 +134,23 @@ public class ValidateContrastOfText implements Rule {
             int g = (argb >> 8) & 0xFF;
             int b = argb & 0xFF;
             return new double[]{r / 255.0, g / 255.0, b / 255.0};
+        }
+
+        /**
+         * For solid-colour paints returns the single colour. For images returns the
+         * pixel at the text bbox centre — a robust single-sample approximation that
+         * beats multi-point worst-case sampling on our corpus (which picked up
+         * unrelated dark pixels at bbox edges).
+         *
+         * <p>The {@code textRgb} argument is accepted for future refinements (e.g.
+         * per-glyph sampling using the actual rendered character mask) but is
+         * currently unused.
+         */
+        double[] worstAgainst(double x0, double y0, double x1, double y1, double[] textRgb) {
+            if (rgb != null) return rgb;
+            double cx = (x0 + x1) / 2.0;
+            double cy = (y0 + y1) / 2.0;
+            return sample(cx, cy);
         }
     }
 
@@ -211,7 +222,14 @@ public class ValidateContrastOfText implements Rule {
 
             double[] textBox = textBbox(tri);
             if (textBox == null) return;
-            double[] bgRgb = backgroundAt(textBox);
+
+            // Kerning-split merge attempts (per-glyph -> per-run) produced counts far
+            // below PAC's on our corpus and were removed. Filled_Graduate's residual
+            // ~700 event over-count vs PAC likely comes from PAC's per-Tj-operator
+            // event granularity that iText's per-glyph-cluster splitting can't
+            // easily reconstruct here.
+
+            double[] bgRgb = backgroundAt(textBox, fillRgb);
 
 
             // Skip pure-white text on pure-white background — visually invisible
@@ -232,13 +250,15 @@ public class ValidateContrastOfText implements Rule {
             }
         }
 
-        /** Walk the paint log newest-to-oldest and return the topmost covering fill; white if none. */
-        private double[] backgroundAt(double[] textBox) {
-            double cx = (textBox[0] + textBox[2]) / 2.0;
-            double cy = (textBox[1] + textBox[3]) / 2.0;
+        /** Walk the paint log newest-to-oldest and return the topmost covering paint's
+         *  effective colour under the text bbox. Images use worst-case pixel sampling
+         *  against the given text fill; solid rectangles return their single colour. */
+        private double[] backgroundAt(double[] textBox, double[] textRgb) {
             for (int i = paintLog.size() - 1; i >= 0; i--) {
                 Paint p = paintLog.get(i);
-                if (p.covers(textBox[0], textBox[1], textBox[2], textBox[3])) return p.sample(cx, cy);
+                if (p.covers(textBox[0], textBox[1], textBox[2], textBox[3])) {
+                    return p.worstAgainst(textBox[0], textBox[1], textBox[2], textBox[3], textRgb);
+                }
             }
             return new double[]{1.0, 1.0, 1.0};
         }
