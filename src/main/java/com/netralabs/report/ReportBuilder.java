@@ -37,8 +37,10 @@ public final class ReportBuilder {
     for (Map.Entry<PDFUACheckpoint, List<FindingDTO>> e : byCheckpoint.entrySet()) {
       PDFUACheckpoint cp = e.getKey();
       // WCAG-only checkpoints don't belong in the PDF/UA report tree — they exist
-      // solely to feed WCAGReportBuilder via WCAGCriterion source mappings.
-      if (!"PDF/UA".equals(cp.getCategory())) continue;
+      // solely to feed WCAGReportBuilder via WCAGCriterion source mappings. The
+      // report-taxonomy field is `reportName` ("PDF/UA" vs "WCAG"), not `category`
+      // (which is the intra-report top-level bucket).
+      if (!"PDF/UA".equals(cp.getReportName())) continue;
 
       CheckpointReportDTO checkpointDto = toCheckpointDto(cp, e.getValue());
       tally(summary, checkpointDto.getStatus());
