@@ -5,12 +5,16 @@ import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceCmyk;
 import com.itextpdf.kernel.colors.DeviceGray;
 import com.itextpdf.kernel.colors.DeviceRgb;
+import com.itextpdf.kernel.geom.LineSegment;
+import com.itextpdf.kernel.geom.Point;
+import com.itextpdf.kernel.geom.Subpath;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfName;
 import com.itextpdf.kernel.pdf.canvas.CanvasTag;
 import com.itextpdf.kernel.pdf.canvas.parser.EventType;
 import com.itextpdf.kernel.pdf.canvas.parser.PdfCanvasProcessor;
 import com.itextpdf.kernel.pdf.canvas.parser.data.IEventData;
+import com.itextpdf.kernel.pdf.canvas.parser.data.PathRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.data.TextRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.listener.IEventListener;
 import com.netralabs.Rule;
@@ -29,15 +33,17 @@ import java.util.Set;
  * contrast ratio must be at least 4.5:1 for regular text and 3:1 for large text
  * (>= 18pt, or >= 14pt bold).
  *
- * <p>This first-cut implementation assumes a **white page background** — sufficient
- * for the common case of black-on-white or dark-text-on-white documents but will
- * miss text painted over colored fills or images. Refinement via a per-page
- * paint log (rectangles + images with their fill colors) is a follow-up.
+ * <p>Background detection is a simple painters-model approximation: the rule
+ * maintains a per-page paint log of filled rectangles (in draw order) with their
+ * fill colors. For each text-show event, the topmost previously-painted rectangle
+ * that <em>contains</em> the text bbox is used as the background. If no covering
+ * rectangle is found the background defaults to white (page paper). Images are
+ * not currently mined for pixel colours; text over images gets the last covering
+ * filled rect (or white).
  *
  * <p>Text is skipped from the tally when:
  * <ul>
- *   <li>Rendering mode is 3 (invisible text — Tr 3), or fill is transparent.</li>
- *   <li>Font size can't be determined.</li>
+ *   <li>Rendering mode is 3 (invisible text — Tr 3), or fill can't be resolved.</li>
  *   <li>Text sits inside an {@code /Artifact} BDC that carries a {@code /Type}
  *       property (classified decorative artifact — same exclusion as
  *       ValidateUnicodeMapping and ContentListener).</li>
@@ -46,13 +52,11 @@ import java.util.Set;
  * <p>PAC-observed denominators on our corpus:
  * <table>
  *   <caption>PAC 1.4.3 Contrast of text counts</caption>
- *   <tr><th>PDF</th><th>P</th><th>E</th><th>Total events</th></tr>
- *   <tr><td>Filled_Graduate</td><td>2593</td><td>392</td><td>3756</td></tr>
+ *   <tr><th>PDF</th><th>P</th><th>E</th><th>Total</th></tr>
+ *   <tr><td>Filled_Graduate</td><td>2593</td><td>392</td><td>3756 total text</td></tr>
  *   <tr><td>CalSAWS</td><td>11205</td><td>0</td><td>11749</td></tr>
  *   <tr><td>Complex_Presentation_Sample</td><td>182</td><td>146</td><td>330</td></tr>
  * </table>
- * PAC excludes 771/544/2 respectively — likely appearance-stream text or another
- * scope-specific filter to tune later.
  */
 public class ValidateContrastOfText implements Rule {
 
@@ -76,9 +80,17 @@ public class ValidateContrastOfText implements Rule {
         return out;
     }
 
+    /** Filled-rectangle paint record for the background painter model. */
+    private record Paint(double minX, double minY, double maxX, double maxY, double[] rgb) {
+        boolean covers(double x0, double y0, double x1, double y1) {
+            return minX <= x0 && minY <= y0 && maxX >= x1 && maxY >= y1;
+        }
+    }
+
     private static final class ContrastListener implements IEventListener {
         private final int pageNum;
         private final List<FindingDTO> out;
+        private final List<Paint> paintLog = new ArrayList<>();
 
         ContrastListener(int pageNum, List<FindingDTO> out) {
             this.pageNum = pageNum;
@@ -87,18 +99,32 @@ public class ValidateContrastOfText implements Rule {
 
         @Override
         public Set<EventType> getSupportedEvents() {
-            return EnumSet.of(EventType.RENDER_TEXT);
+            return EnumSet.of(EventType.RENDER_TEXT, EventType.RENDER_PATH);
         }
 
         @Override
         public void eventOccurred(IEventData data, EventType type) {
-            if (type != EventType.RENDER_TEXT) return;
-            TextRenderInfo tri = (TextRenderInfo) data;
+            if (type == EventType.RENDER_PATH) {
+                onPath((PathRenderInfo) data);
+                return;
+            }
+            if (type == EventType.RENDER_TEXT) {
+                onText((TextRenderInfo) data);
+            }
+        }
 
-            // Skip invisible text (rendering mode 3).
+        private void onPath(PathRenderInfo pi) {
+            // Only record filled paths (F/f/B/b operations include FILL bit).
+            if ((pi.getOperation() & PathRenderInfo.FILL) == 0) return;
+            double[] bbox = pathBbox(pi);
+            if (bbox == null) return;
+            double[] rgb = toRgb(pi.getFillColor());
+            if (rgb == null) return;
+            paintLog.add(new Paint(bbox[0], bbox[1], bbox[2], bbox[3], rgb));
+        }
+
+        private void onText(TextRenderInfo tri) {
             if (tri.getTextRenderMode() == 3) return;
-            // Skip text inside a "classified" Artifact BDC — same exclusion as
-            // ValidateUnicodeMapping / ContentListener.
             if (isTypedArtifact(tri)) return;
 
             Color fill = tri.getFillColor();
@@ -106,8 +132,9 @@ public class ValidateContrastOfText implements Rule {
             double[] fillRgb = toRgb(fill);
             if (fillRgb == null) return;
 
-            // Background assumed white for this first-cut implementation.
-            double[] bgRgb = {1.0, 1.0, 1.0};
+            double[] textBox = textBbox(tri);
+            if (textBox == null) return;
+            double[] bgRgb = backgroundAt(textBox);
 
             double ratio = contrastRatio(fillRgb, bgRgb);
             double threshold = isLargeText(tri) ? THRESHOLD_LARGE : THRESHOLD_REGULAR;
@@ -119,12 +146,74 @@ public class ValidateContrastOfText implements Rule {
                         String.format("Text contrast %.2f:1 is below WCAG minimum %.1f:1", ratio, threshold)));
             }
         }
+
+        /** Walk the paint log newest-to-oldest and return the topmost covering fill; white if none. */
+        private double[] backgroundAt(double[] textBox) {
+            for (int i = paintLog.size() - 1; i >= 0; i--) {
+                Paint p = paintLog.get(i);
+                if (p.covers(textBox[0], textBox[1], textBox[2], textBox[3])) return p.rgb;
+            }
+            return new double[]{1.0, 1.0, 1.0};
+        }
+    }
+
+    /** Text bbox from the render info's baseline/ascent/descent segments. */
+    private static double[] textBbox(TextRenderInfo tri) {
+        LineSegment baseline = tri.getBaseline();
+        LineSegment ascent = tri.getAscentLine();
+        LineSegment descent = tri.getDescentLine();
+        double[] xs = {
+                baseline.getStartPoint().get(0), baseline.getEndPoint().get(0),
+                ascent.getStartPoint().get(0), ascent.getEndPoint().get(0),
+                descent.getStartPoint().get(0), descent.getEndPoint().get(0)
+        };
+        double[] ys = {
+                baseline.getStartPoint().get(1), baseline.getEndPoint().get(1),
+                ascent.getStartPoint().get(1), ascent.getEndPoint().get(1),
+                descent.getStartPoint().get(1), descent.getEndPoint().get(1)
+        };
+        return bounds(xs, ys);
+    }
+
+    /** Path bbox from its subpaths (piecewise-linear approximation of curves). */
+    private static double[] pathBbox(PathRenderInfo pi) {
+        if (pi.getPath() == null) return null;
+        List<Subpath> subs = pi.getPath().getSubpaths();
+        if (subs == null || subs.isEmpty()) return null;
+        double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
+        double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+        boolean any = false;
+        for (Subpath sp : subs) {
+            try {
+                for (Point p : sp.getPiecewiseLinearApproximation()) {
+                    double x = p.getX();
+                    double y = p.getY();
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    any = true;
+                }
+            } catch (Exception ignored) {}
+        }
+        if (!any) return null;
+        return new double[]{minX, minY, maxX, maxY};
+    }
+
+    private static double[] bounds(double[] xs, double[] ys) {
+        double minX = xs[0], maxX = xs[0], minY = ys[0], maxY = ys[0];
+        for (int i = 1; i < xs.length; i++) {
+            if (xs[i] < minX) minX = xs[i];
+            if (xs[i] > maxX) maxX = xs[i];
+            if (ys[i] < minY) minY = ys[i];
+            if (ys[i] > maxY) maxY = ys[i];
+        }
+        return new double[]{minX, minY, maxX, maxY};
     }
 
     /**
      * True iff the innermost marked-content tag is an {@code /Artifact} BDC that
-     * carries an explicit {@code /Type} property. Same rule as
-     * {@code ValidateUnicodeMapping.isTypedArtifact}.
+     * carries an explicit {@code /Type} property.
      */
     private static boolean isTypedArtifact(TextRenderInfo tri) {
         List<CanvasTag> h = tri.getCanvasTagHierarchy();
@@ -139,8 +228,7 @@ public class ValidateContrastOfText implements Rule {
     /**
      * Convert an iText {@link Color} to a linear RGB triple in [0, 1]. Handles
      * DeviceGray / DeviceRGB / DeviceCMYK. Returns null for color spaces we can't
-     * safely map (Separation, DeviceN, ICCBased with unusual profiles) — those
-     * text-shows are simply skipped from the tally.
+     * safely map (Separation, DeviceN, ICCBased with unusual profiles).
      */
     private static double[] toRgb(Color c) {
         if (c instanceof DeviceRgb) {
@@ -158,10 +246,9 @@ public class ValidateContrastOfText implements Rule {
             double M = clamp01(v[1]);
             double Y = clamp01(v[2]);
             double K = clamp01(v[3]);
-            // Naive CMYK → RGB conversion (assumes uncalibrated CMYK).
+            // Naive CMYK -> RGB conversion (assumes uncalibrated CMYK).
             return new double[]{(1 - C) * (1 - K), (1 - M) * (1 - K), (1 - Y) * (1 - K)};
         }
-        // Fallback: try ColorConstants matches.
         if (c == ColorConstants.BLACK) return new double[]{0, 0, 0};
         if (c == ColorConstants.WHITE) return new double[]{1, 1, 1};
         return null;
@@ -185,7 +272,7 @@ public class ValidateContrastOfText implements Rule {
         return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
     }
 
-    /** WCAG contrast ratio (L1 + 0.05) / (L2 + 0.05), L1 lighter of the two. */
+    /** WCAG contrast ratio (L1 + 0.05) / (L2 + 0.05), L1 the lighter of the two. */
     private static double contrastRatio(double[] a, double[] b) {
         double la = relativeLuminance(a);
         double lb = relativeLuminance(b);
@@ -204,7 +291,7 @@ public class ValidateContrastOfText implements Rule {
         if (pts >= LARGE_TEXT_POINTS) return true;
         if (pts < BOLD_LARGE_TEXT_POINTS) return false;
         if (tri.getFont() == null || tri.getFont().getPdfObject() == null) return false;
-        PdfName base = tri.getFont().getPdfObject().getAsName(com.itextpdf.kernel.pdf.PdfName.BaseFont);
+        PdfName base = tri.getFont().getPdfObject().getAsName(PdfName.BaseFont);
         if (base == null) return false;
         String name = base.getValue().toLowerCase(java.util.Locale.ROOT);
         return name.contains("bold") || name.contains("heavy") || name.contains("black");
