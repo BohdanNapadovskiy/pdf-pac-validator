@@ -22,9 +22,9 @@ import static com.netralabs.domain.PDFUACheckpoint.TABLE_HEADER_CELL_ASSIGNMENTS
  * ({@code /Row}, {@code /Column} or {@code /Both}) so its role in the header
  * association graph is unambiguous.
  *
- * <p>PAC-style semantics: errors only, no positive counts. TDs are not checked
- * here — their association is either explicit ({@code /Headers}) or implicit via
- * any TH in the enclosing Table, which is already covered.
+ * <p>PAC-style semantics: one PASSED per TH-with-Scope, one ERROR per TH-without-Scope.
+ * TDs are not checked — their association is either explicit ({@code /Headers}) or
+ * implicit via any TH in the enclosing Table, which is already covered.
  */
 public class ValidateTableHeaderCellAssignments implements Rule {
 
@@ -46,10 +46,13 @@ public class ValidateTableHeaderCellAssignments implements Rule {
         StructWalk.walk(pdf, elem -> {
             if (!"TH".equals(StructWalk.normRole(pdf, elem))) return;
             PdfDictionary dict = elem.getPdfObject();
-            if (hasTableScope(dict)) return;
             int page = StructUtils.pageNumOf(pdf, dict);
-            out.add(new FindingDTO(Severity.ERROR, TABLE_HEADER_CELL_ASSIGNMENTS, page, null,
-                    "Table header cell has no Scope attribute"));
+            if (hasTableScope(dict)) {
+                out.add(new FindingDTO(Severity.PASSED, TABLE_HEADER_CELL_ASSIGNMENTS, page, null));
+            } else {
+                out.add(new FindingDTO(Severity.ERROR, TABLE_HEADER_CELL_ASSIGNMENTS, page, null,
+                        "Table header cell has no Scope attribute"));
+            }
         });
         return out;
     }

@@ -85,6 +85,9 @@ public final class VeraRunner {
             && (ruleId.startsWith("ISO 14289-2:2024-") || ruleId.startsWith("ISO 32005:2023-"))) continue;
         PDFUACheckpoint cp = VeraRuleMapping.toCheckpoint(ruleId);
         if (cp == null) continue;
+        // PAC displays some checkpoint rows as error-only (no PASSED tally); drop
+        // vera's passes for those to avoid inflating the row.
+        if (isPass && VeraRuleMapping.isErrorOnly(cp)) continue;
         Severity sev;
         if (isPass) sev = Severity.PASSED;
         else if (VeraRuleMapping.isWarning(ruleId)) sev = Severity.WARNING;

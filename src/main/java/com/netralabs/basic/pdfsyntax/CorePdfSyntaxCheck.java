@@ -14,12 +14,14 @@ import static com.netralabs.domain.Severity.PASSED;
 
 /**
  * ISO 32000-1 §7.5 file structure sanity checks. PAC's "PDF syntax" tally is
- * one PASSED per validated indirect PDF object that participates in the
- * document skeleton: Catalog, every Pages tree node, every Page, every
- * struct element, Resources / Annots dicts per page, and the Info dict.
+ * one PASSED per validated skeleton object: Catalog, Pages tree root, every
+ * Page dict, per-page /Resources (when present) and /Annots (when present),
+ * and every struct element (via {@link StructUtils#walkStructure}).
  *
- * <p>For a small untagged doc this yields single-digit counts; for a large
- * well-tagged doc it scales with the struct-tree size — matching PAC.
+ * <p>Font dictionaries, FontDescriptors, Encodings and the trailer /Info dict
+ * are intentionally NOT tallied here — PAC handles fonts via the "Font
+ * embedding" row and treats /Info as a metadata concern; folding them in
+ * over-counts on font-heavy documents.
  */
 public class CorePdfSyntaxCheck implements Rule {
     @Override
@@ -35,13 +37,19 @@ public class CorePdfSyntaxCheck implements Rule {
         }
         out.add(new FindingDTO(PASSED, PDF_SYNTAX, 0, null));
 
-        // Pages tree — count every node (root + intermediates).
+        // Pages tree root — one PASSED for the root node, whether or not it has
+        // intermediate /Kids nodes (PAC does not tally intermediates separately).
         PdfDictionary pagesRoot = catalog.getAsDictionary(PdfName.Pages);
         if (pagesRoot == null) {
             out.add(new FindingDTO(ERROR, PDF_SYNTAX, 0, null, "Pages tree missing"));
             return out;
         }
-        countPagesTreeNodes(pagesRoot, out);
+        PdfName rootType = pagesRoot.getAsName(PdfName.Type);
+        if (rootType != null && !PdfName.Pages.equals(rootType)) {
+            out.add(new FindingDTO(ERROR, PDF_SYNTAX, 0, null, "Pages tree node /Type is not /Pages"));
+        } else {
+            out.add(new FindingDTO(PASSED, PDF_SYNTAX, 0, null));
+        }
 
         // Per page: page dict + Resources (if present) + Annots (if present).
         int n = pdf.getNumberOfPages();
@@ -81,12 +89,6 @@ public class CorePdfSyntaxCheck implements Rule {
             }
         }
 
-        // Info dict (only when it's an indirect dictionary).
-        PdfObject info = pdf.getTrailer().get(PdfName.Info);
-        if (info instanceof PdfDictionary && info.getIndirectReference() != null) {
-            out.add(new FindingDTO(PASSED, PDF_SYNTAX, 0, null));
-        }
-
         // Struct elements: one PASSED per element via dict-level DFS (works even
         // when iText's typed API can't traverse a malformed struct tree).
         StructUtils.walkStructure(pdf, (parent, se) -> {
@@ -94,76 +96,6 @@ public class CorePdfSyntaxCheck implements Rule {
             out.add(new FindingDTO(PASSED, PDF_SYNTAX, page, null));
         });
 
-        // Font resources referenced by pages — one PASSED per unique Font dict
-        // (excluding Standard 14 which need no validation).
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
-        for (int i = 1; i <= n; i++) {
-            PdfPage page = pdf.getPage(i);
-            PdfDictionary res = page.getPdfObject().getAsDictionary(PdfName.Resources);
-            if (res == null) continue;
-            PdfDictionary fonts = res.getAsDictionary(PdfName.Font);
-            if (fonts == null) continue;
-            for (PdfName fname : fonts.keySet()) {
-                PdfDictionary font = fonts.getAsDictionary(fname);
-                if (font == null || isStandard14(font)) continue;
-                addOncePassed(seen, font, out);
-            }
-        }
-
-        // Any indirect FontDescriptor or Encoding dictionary in the file (whether
-        // reached from pages or via XObjects). PAC includes these in the tally.
-        int totalObjs = pdf.getNumberOfPdfObjects();
-        for (int i = 1; i <= totalObjs; i++) {
-            PdfObject o = pdf.getPdfObject(i);
-            if (!(o instanceof PdfDictionary d) || o.isStream()) continue;
-            PdfName t = d.getAsName(PdfName.Type);
-            if (PdfName.FontDescriptor.equals(t) || PdfName.Encoding.equals(t)) {
-                addOncePassed(seen, d, out);
-            }
-        }
-
         return out;
-    }
-
-    private static boolean addOncePassed(java.util.Set<Integer> seen, PdfDictionary d,
-                                         List<FindingDTO> out) {
-        PdfIndirectReference ref = d.getIndirectReference();
-        Integer id = ref != null ? ref.getObjNumber() : System.identityHashCode(d);
-        if (!seen.add(id)) return false;
-        out.add(new FindingDTO(PASSED, PDF_SYNTAX, 0, null));
-        return true;
-    }
-
-    private static final java.util.Set<String> STANDARD_14 = java.util.Set.of(
-            "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
-            "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
-            "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
-            "Symbol", "ZapfDingbats");
-
-    private static boolean isStandard14(PdfDictionary font) {
-        PdfName base = font.getAsName(PdfName.BaseFont);
-        if (base == null) return false;
-        String name = base.getValue();
-        int plus = name.indexOf('+');
-        if (plus == 6) name = name.substring(plus + 1);
-        return STANDARD_14.contains(name);
-    }
-
-    /** DFS over the pages tree emitting one PASSED per Pages node. */
-    private static void countPagesTreeNodes(PdfDictionary node, List<FindingDTO> out) {
-        PdfName t = node.getAsName(PdfName.Type);
-        if (t != null && !PdfName.Pages.equals(t)) {
-            out.add(new FindingDTO(ERROR, PDF_SYNTAX, 0, null, "Pages tree node /Type is not /Pages"));
-            return;
-        }
-        out.add(new FindingDTO(PASSED, PDF_SYNTAX, 0, null));
-        PdfArray kids = node.getAsArray(PdfName.Kids);
-        if (kids == null) return;
-        for (int i = 0; i < kids.size(); i++) {
-            PdfObject k = kids.get(i);
-            if (k instanceof PdfDictionary d && PdfName.Pages.equals(d.getAsName(PdfName.Type))) {
-                countPagesTreeNodes(d, out);
-            }
-        }
     }
 }

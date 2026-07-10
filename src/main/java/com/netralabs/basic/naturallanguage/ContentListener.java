@@ -25,6 +25,11 @@ public class ContentListener  implements IEventListener {
     private final Deque<String> langStack = new ArrayDeque<>();
     private final Deque<Boolean> langPushedStack = new ArrayDeque<>();
     private final Deque<Boolean> artifactPushedStack = new ArrayDeque<>();
+    /** Per-frame flag: true when the BMC/BDC is a {@code /Artifact} carrying an explicit
+     * {@code /Type} property (Pagination, Page, Layout, Background). Used to skip
+     * text-show events whose innermost frame is such a "classified" artifact — PAC
+     * excludes them from text-count rows. */
+    private final Deque<Boolean> typedArtifactPushedStack = new ArrayDeque<>();
     private final Set<Integer> seenMcids = new HashSet<>();
 
     private int markedDepth = 0;
@@ -58,6 +63,9 @@ public class ContentListener  implements IEventListener {
         langPushedStack.push(pushed);
         // Record whether this BMC/BDC frame is an /Artifact so endMarked can decrement.
         artifactPushedStack.push("Artifact".equals(tag));
+        // Classified artifact: /Artifact BDC with an explicit /Type property.
+        typedArtifactPushedStack.push("Artifact".equals(tag)
+                && props != null && props.get(PdfName.Type) != null);
     }
 
     void endMarked() {
@@ -67,6 +75,7 @@ public class ContentListener  implements IEventListener {
         if (!artifactPushedStack.isEmpty() && Boolean.TRUE.equals(artifactPushedStack.pop())) {
             artifactDepth = Math.max(0, artifactDepth - 1);
         }
+        if (!typedArtifactPushedStack.isEmpty()) typedArtifactPushedStack.pop();
         markedDepth = Math.max(0, markedDepth - 1);
         if (markedDepth == 0) {
             currentMcid = null;
@@ -79,11 +88,18 @@ public class ContentListener  implements IEventListener {
     public void eventOccurred(IEventData data, EventType type) {
         switch (type) {
             case RENDER_TEXT: {
-                // PAC counts every text-showing operator on the page unless it sits
-                // inside an /Artifact scope. Text in tagged MCIDs, OC-layer BDCs,
-                // other marked scopes, and bare text all count — only artifactal
-                // (decorative) text is excluded.
-                if (artifactDepth > 0) break;
+                // PAC counts every text-showing operator on the page, including
+                // /Artifact-scoped text — verified against Filled_Graduate where
+                // PAC's 3756 count matches raw processPageContent event count and
+                // our previous artifact-excluded 3676 was 80 events short.
+                //
+                // Exception: skip when the innermost frame is a "classified"
+                // Artifact BDC (an /Artifact with an explicit /Type property —
+                // Pagination / Page / Layout / Background). Complex has one such
+                // event on page 2 (page-number "4"); PAC excludes it.
+                if (!typedArtifactPushedStack.isEmpty() && Boolean.TRUE.equals(typedArtifactPushedStack.peek())) {
+                    break;
+                }
                 emitFinding(resolveLang(), (TextRenderInfo) data);
                 break;
             }

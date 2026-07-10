@@ -706,8 +706,8 @@ public enum PDFUACheckpoint {
             "Alternative Descriptions",
             "Alternate names for form fields",
             "",
-            null,
-            null
+            com.netralabs.logicalstructure.structureelements.annotations.ValidateFormFieldAltNames::new,
+            Phase.DOCUMENT
     ),
     ALTERNATIVE_DESCRIPTION_FOR_ANNOT(
             "PDF/UA",
