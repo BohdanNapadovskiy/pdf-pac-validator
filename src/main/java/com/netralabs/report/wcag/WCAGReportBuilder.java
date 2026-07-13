@@ -142,7 +142,7 @@ public final class WCAGReportBuilder {
         } else if (sev == Severity.WARNING) {
           counts.setWarning(counts.getWarning() + 1);
           entries.add(toEntry(f, cp));
-        } else if (sev == Severity.PASSED) {
+        } else if (sev == Severity.PASSED && !leaf.isErrorsOnly()) {
           counts.setPassed(counts.getPassed() + 1);
         }
       }
