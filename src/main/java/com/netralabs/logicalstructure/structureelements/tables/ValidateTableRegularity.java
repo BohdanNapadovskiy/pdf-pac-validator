@@ -31,9 +31,14 @@ import static com.netralabs.domain.PDFUACheckpoint.TABLE_REGULARITY;
  *
  * <p>Emission:
  * <ul>
- *   <li>One PASSED per regular Table (all TRs have identical effective width).</li>
+ *   <li>One PASSED per regular Table (all TRs have identical effective width and
+ *       no row mixes TH+TD cells).</li>
  *   <li>One WARNING per irregular TR — one per row that does not match the table's
  *       maximum effective width.</li>
+ *   <li>One WARNING per Table containing at least one row with both TH and TD
+ *       cells (mixed header/data in a single row is a header-classification
+ *       ambiguity PAC flags). Verified: Filled has 3 such tables (Tables 2, 3, 4)
+ *       matching PAC's Tables row 51P/9W.</li>
  * </ul>
  */
 public class ValidateTableRegularity implements Rule {
@@ -72,19 +77,47 @@ public class ValidateTableRegularity implements Rule {
 
         boolean allEqual = true;
         for (int c : colCounts) if (c != max) { allEqual = false; break; }
+        boolean hasMixedThTdRow = anyRowMixesThTd(pdf, rows);
 
         int tablePage = StructUtils.pageNumOf(pdf, table.getPdfObject());
+        // Column-regularity: one PASSED per column-regular Table, one WARNING per
+        // irregular row otherwise.
         if (allEqual) {
             out.add(new FindingDTO(Severity.PASSED, TABLE_REGULARITY, tablePage, null));
-            return;
+        } else {
+            for (int i = 0; i < rows.size(); i++) {
+                if (colCounts[i] == max) continue;
+                int rowPage = StructUtils.pageNumOf(pdf, rows.get(i).getPdfObject());
+                if (rowPage <= 0) rowPage = tablePage;
+                out.add(new FindingDTO(Severity.WARNING, TABLE_REGULARITY, rowPage, null,
+                        "Table rows shall have the same number of columns (taking into account column spans)"));
+            }
         }
-        for (int i = 0; i < rows.size(); i++) {
-            if (colCounts[i] == max) continue;
-            int rowPage = StructUtils.pageNumOf(pdf, rows.get(i).getPdfObject());
-            if (rowPage <= 0) rowPage = tablePage;
-            out.add(new FindingDTO(Severity.WARNING, TABLE_REGULARITY, rowPage, null,
-                    "Table rows shall have the same number of columns (taking into account column spans)"));
+        // Additional mixed-TH+TD row warning is independent of column regularity.
+        if (hasMixedThTdRow) {
+            out.add(new FindingDTO(Severity.WARNING, TABLE_REGULARITY, tablePage, null,
+                    "Table row contains both TH and TD cells (mixed header/data classification)"));
         }
+    }
+
+    /**
+     * True iff any row has BOTH a TH child AND a TD child (header and data cells
+     * in the same row — a structural ambiguity PAC warns on).
+     */
+    private static boolean anyRowMixesThTd(PdfDocument pdf, List<PdfStructElem> rows) {
+        for (PdfStructElem row : rows) {
+            List<IStructureNode> kids = row.getKids();
+            if (kids == null) continue;
+            boolean th = false, td = false;
+            for (IStructureNode k : kids) {
+                if (!(k instanceof PdfStructElem se)) continue;
+                String r = StructWalk.normRole(pdf, se);
+                if ("TH".equals(r)) th = true;
+                else if ("TD".equals(r)) td = true;
+                if (th && td) return true;
+            }
+        }
+        return false;
     }
 
     /**

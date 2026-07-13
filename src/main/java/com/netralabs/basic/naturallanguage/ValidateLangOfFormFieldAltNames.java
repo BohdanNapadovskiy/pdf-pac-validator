@@ -50,8 +50,14 @@ public class ValidateLangOfFormFieldAltNames implements Rule {
                 }
             }
 
-            String effective = firstNonBlank(fieldLang, pageLang, docLang);
-            addLangFinding(out, effective, NATURAL_LANGUAGE_ALTERNATE_NAMES_FORM_FIELD, pageNum);
+            // PAC-parity: only emit when the form field carries an explicit /Lang
+            // override on its own dict. Fields inheriting the doc /Lang aren't tallied
+            // on this row — they're implicitly covered by "Natural language of text
+            // objects". Verified: Filled_Graduate has 27 form fields all inheriting
+            // doc EN-US and PAC's row is dashed; emitting for inheritors added a
+            // spurious +27 passes.
+            if (fieldLang == null || fieldLang.isBlank()) continue;
+            addLangFinding(out, fieldLang, NATURAL_LANGUAGE_ALTERNATE_NAMES_FORM_FIELD, pageNum);
         }
     }
 }
