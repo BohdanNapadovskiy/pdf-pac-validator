@@ -2,7 +2,6 @@ package com.netralabs.basic.naturallanguage;
 
 import com.itextpdf.kernel.pdf.*;
 
-import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 public class LangUtils {
@@ -68,33 +67,4 @@ public class LangUtils {
         return docLang;
     }
 
-    /** Walk the structure tree and visit each StructElem dictionary. */
-    public static void walkStructElems(PdfDocument pdf, Consumer<PdfDictionary> visitor) {
-        PdfDictionary str = pdf.getCatalog().getPdfObject().getAsDictionary(new PdfName("StructTreeRoot"));
-        if (str == null) return;
-        PdfObject k = str.get(PdfName.K);
-        walkK(str, k, visitor);
-    }
-    private static void walkK(PdfDictionary parent, PdfObject k, Consumer<PdfDictionary> v) {
-        if (k == null) return;
-        if (k.isDictionary()) {
-            PdfDictionary d = (PdfDictionary) k;
-            if (isStructElem(d)) { v.accept(d); walkK(d, d.get(PdfName.K), v); }
-        } else if (k.isArray()) {
-            PdfArray a = (PdfArray) k;
-            for (int i = 0; i < a.size(); i++) {
-                PdfObject o = a.get(i);
-                if (o != null && o.isDictionary()) {
-                    PdfDictionary d = (PdfDictionary) o;
-                    if (isStructElem(d)) { v.accept(d); walkK(d, d.get(PdfName.K), v); }
-                }
-            }
-        }
-    }
-
-
-    private static boolean isStructElem(PdfDictionary d) {
-        PdfName type = d.getAsName(PdfName.Type);
-        return PdfName.StructElem.equals(type) || d.containsKey(PdfName.S);
-    }
 }
