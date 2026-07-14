@@ -1,10 +1,10 @@
-package com.netralabs.report.wcag;
+package com.netralabs.report.quality;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.netralabs.report.CheckpointStatus;
 import com.netralabs.report.CountsDTO;
-import com.netralabs.report.ShortSummaryEntryDTO;
+import com.netralabs.report.FindingEntryDTO;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -18,11 +18,10 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
-@JsonPropertyOrder({"name", "status", "counts", "shortSummary", "principles"})
-public class WCAGReportDTO {
+@JsonPropertyOrder({"name", "status", "counts", "findings"})
+public class QualityLeafDTO {
   private String name;
   private CheckpointStatus status;
   private CountsDTO counts;
-  private List<ShortSummaryEntryDTO> shortSummary = new ArrayList<>();
-  private List<PrincipleDTO> principles = new ArrayList<>();
+  private List<FindingEntryDTO> findings = new ArrayList<>();
 }
