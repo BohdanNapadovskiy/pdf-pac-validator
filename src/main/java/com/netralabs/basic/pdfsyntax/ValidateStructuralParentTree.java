@@ -53,7 +53,32 @@ public class ValidateStructuralParentTree implements Rule {
             }
         });
 
+        // Also check annotation /StructParent keys resolve into /ParentTree /Nums.
+        // PAC rolls this up to a single aggregate finding per document, so emit at most
+        // one error even when multiple annotations are unresolved.
+        if (hasUnresolvedAnnotStructParent(pdf, nums)) {
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null,
+                    "Inconsistent entry found"));
+        }
+
         return out;
+    }
+
+    private static boolean hasUnresolvedAnnotStructParent(PdfDocument pdf, Map<Integer, PdfObject> nums) {
+        int pages = pdf.getNumberOfPages();
+        for (int i = 1; i <= pages; i++) {
+            PdfDictionary page = pdf.getPage(i).getPdfObject();
+            PdfArray annots = page.getAsArray(PdfName.Annots);
+            if (annots == null) continue;
+            for (int j = 0; j < annots.size(); j++) {
+                PdfDictionary annot = annots.getAsDictionary(j);
+                if (annot == null) continue;
+                PdfNumber sp = annot.getAsNumber(new PdfName("StructParent"));
+                if (sp == null) continue;
+                if (!nums.containsKey(sp.intValue())) return true;
+            }
+        }
+        return false;
     }
 
     private static void collectNums(PdfDictionary node, Map<Integer, PdfObject> nums) {
