@@ -260,6 +260,22 @@ public final class VeraRuleMapping {
       "8.2.5.28.2", PDFUACheckpoint.BOUNDED_BOXES
   );
 
+  /**
+   * UA-2 rule IDs that would otherwise map (via object type) to a checkpoint but which
+   * PAC does not count on that row. Excluded to avoid false-positive errors that PAC
+   * ignores.
+   *
+   * <ul>
+   *   <li>{@code 5-5} — "pdfuaid:rev shall be the four digit year". Fires when {@code rev}
+   *       is absent, not just when it's present-but-wrong. PAC's "PDF/UA identifier" row
+   *       only checks that the identifier ({@code pdfuaid:part}) is declared; missing
+   *       {@code rev} is not surfaced on that row.</li>
+   * </ul>
+   */
+  private static final Set<String> UA2_EXCLUDED_RULES = Set.of(
+      "ISO 14289-2:2024-5-5"
+  );
+
   // Declared last so both OBJECT_TO_CHECKPOINT and CLAUSE_OVERRIDES are initialised
   // before we iterate the profile.
   private static final Map<String, PDFUACheckpoint> UA2_MAP = buildUa2Map();
@@ -278,6 +294,7 @@ public final class VeraRuleMapping {
         String test   = String.valueOf(r.getRuleId().getTestNumber());
         String spec   = r.getRuleId().getSpecification().getId();
         String ruleId = spec + "-" + clause + "-" + test;
+        if (UA2_EXCLUDED_RULES.contains(ruleId)) continue;
         PDFUACheckpoint cp = CLAUSE_OVERRIDES.getOrDefault(clause,
             OBJECT_TO_CHECKPOINT.get(r.getObject()));
         if (cp != null) m.put(ruleId, cp);
