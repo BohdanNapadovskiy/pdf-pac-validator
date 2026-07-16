@@ -60,7 +60,14 @@ public final class VeraRuleMapping {
       // (matching PAC's per-document granularity). On UA-2 docs the PDDocument
       // and CosLang catch-alls contribute additional pass-2 assertions that
       // inflate the row (OP_AoD: 1 native + 3 vera = 4 vs PAC 1).
-      PDFUACheckpoint.CORRECTNESS_LANGUAGE_ATR
+      PDFUACheckpoint.CORRECTNESS_LANGUAGE_ATR,
+      // ValidateTaggedCoverage emits one PASSED per paint event
+      // (RENDER_TEXT/RENDER_IMAGE/non-NO_OP RENDER_PATH), matching PAC's
+      // per-paint tally on this row. On UA-2 docs the SESimpleContentItem and
+      // SEGraphicContentItem catch-alls fire additional UA-2 semantic-check
+      // pass-2 assertions that PAC does not surface (OP_AoD: 11523 native +
+      // 845 vera = 12368P vs PAC 11523).
+      PDFUACheckpoint.TAGGED_CONTENT_ARTIFACTS
   );
 
   public static boolean isErrorOnly(PDFUACheckpoint cp) {
