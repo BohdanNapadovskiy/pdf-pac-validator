@@ -55,7 +55,12 @@ public final class VeraRuleMapping {
       PDFUACheckpoint.REGISTRY_ENTRIES,
       PDFUACheckpoint.PREDEFINED_CMAPS,
       PDFUACheckpoint.GLYPH_NAMES,
-      PDFUACheckpoint.CID_GID_MAPPING
+      PDFUACheckpoint.CID_GID_MAPPING,
+      // ValidateLangAttributeCorrectness emits exactly one PASSED per document
+      // (matching PAC's per-document granularity). On UA-2 docs the PDDocument
+      // and CosLang catch-alls contribute additional pass-2 assertions that
+      // inflate the row (OP_AoD: 1 native + 3 vera = 4 vs PAC 1).
+      PDFUACheckpoint.CORRECTNESS_LANGUAGE_ATR
   );
 
   public static boolean isErrorOnly(PDFUACheckpoint cp) {
