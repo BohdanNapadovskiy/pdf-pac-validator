@@ -279,13 +279,19 @@ public final class VeraRuleMapping {
    *       level {@code /Dest} and {@code /GoTo} action. PAC's "PDF syntax" row does not
    *       enforce the structure-destination requirement; leaving these mapped inflates
    *       the row with dozens of false-positive errors on real-world UA-2 documents.</li>
+   *   <li>{@code 8.4.5.5.1-1} — "The font programs for all fonts used for rendering
+   *       shall be embedded". Native {@code ValidateFontsEmbedding} already visits
+   *       every font wrapper and descendant CIDFont with PAC-matching semantics; vera's
+   *       {@code containsFontFile} check reports false positives on some embedded
+   *       CIDFonts and would also double-count PASSED entries via the pass-2 collection.</li>
    * </ul>
    */
   private static final Set<String> UA2_EXCLUDED_RULES = Set.of(
       "ISO 14289-2:2024-5-5",
       "ISO 14289-2:2024-8.2.5.2-2",
       "ISO 14289-2:2024-8.8-1",
-      "ISO 14289-2:2024-8.8-2"
+      "ISO 14289-2:2024-8.8-2",
+      "ISO 14289-2:2024-8.4.5.5.1-1"
   );
 
   // Declared last so both OBJECT_TO_CHECKPOINT and CLAUSE_OVERRIDES are initialised
