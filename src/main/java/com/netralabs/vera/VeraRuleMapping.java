@@ -294,6 +294,23 @@ public final class VeraRuleMapping {
    *       every font wrapper and descendant CIDFont with PAC-matching semantics; vera's
    *       {@code containsFontFile} check reports false positives on some embedded
    *       CIDFonts and would also double-count PASSED entries via the pass-2 collection.</li>
+   *   <li>{@code 8.2.5.14-1} — "The Note standard structure type shall not be present
+   *       in conforming documents unless role mapped to a structure element in the
+   *       PDF 2.0 namespace". Vera's test is unconditional ({@code false}), firing an
+   *       error for every SENote on UA-2 documents. PAC leaves the per-tag Note row
+   *       clean; the Note-ID uniqueness check under "Notes" already covers what PAC
+   *       displays there.</li>
+   *   <li>{@code 8.2.5.8-1} — "Each TOCI shall identify the target of the reference
+   *       using the Ref entry". PAC does not enforce {@code Ref} presence on TOCI
+   *       structure elements on the "TOCI" tag row.</li>
+   *   <li>{@code 8.2.5.25-1} — "If Lbl structure elements are present, the ListNumbering
+   *       attribute shall be present on the respective L structure element". PAC does
+   *       not enforce {@code ListNumbering} on the "L" tag row.</li>
+   *   <li>{@code 8.2.5.26-3} / {@code 8.2.5.26-4} — "Tables shall be regular. Table
+   *       rows shall have the same number of columns". Native {@code
+   *       ValidateTableRegularity} already emits the per-row findings PAC displays
+   *       under Structure Elements → Tables → Table regularity; letting vera also fire
+   *       under the Structure tree "Table" row double-attributes the same defect.</li>
    * </ul>
    */
   private static final Set<String> UA2_EXCLUDED_RULES = Set.of(
@@ -301,7 +318,12 @@ public final class VeraRuleMapping {
       "ISO 14289-2:2024-8.2.5.2-2",
       "ISO 14289-2:2024-8.8-1",
       "ISO 14289-2:2024-8.8-2",
-      "ISO 14289-2:2024-8.4.5.5.1-1"
+      "ISO 14289-2:2024-8.4.5.5.1-1",
+      "ISO 14289-2:2024-8.2.5.14-1",
+      "ISO 14289-2:2024-8.2.5.8-1",
+      "ISO 14289-2:2024-8.2.5.25-1",
+      "ISO 14289-2:2024-8.2.5.26-3",
+      "ISO 14289-2:2024-8.2.5.26-4"
   );
 
   // Declared last so both OBJECT_TO_CHECKPOINT and CLAUSE_OVERRIDES are initialised
