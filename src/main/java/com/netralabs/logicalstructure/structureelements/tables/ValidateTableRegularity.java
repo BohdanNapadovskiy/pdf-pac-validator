@@ -24,22 +24,24 @@ import static com.netralabs.domain.PDFUACheckpoint.TABLE_REGULARITY;
 
 /**
  * ISO 14289-1 §7.2 / PAC "Table regularity" — checks that every row of a Table has
- * the same effective column count, accounting for both {@code /ColSpan} and
- * {@code /RowSpan}. A cell with {@code /RowSpan=N} occupies its column indices in
- * the subsequent {@code N-1} rows, so those rows' width includes the blocked
- * columns even when their own {@code /K} contains fewer explicit cells.
+ * the same effective column count as the <em>first</em> row, accounting for both
+ * {@code /ColSpan} and {@code /RowSpan}. A cell with {@code /RowSpan=N} occupies
+ * its column indices in the subsequent {@code N-1} rows, so those rows' width
+ * includes the blocked columns even when their own {@code /K} contains fewer
+ * explicit cells.
  *
- * <p>Emission:
+ * <p>Emission (verified against PAC on OP_AoD 7P/14W and Filled_Graduate 51P/9W):
  * <ul>
- *   <li>One PASSED per regular Table (all TRs have identical effective width and
- *       no row mixes TH+TD cells).</li>
- *   <li>One WARNING per irregular TR — one per row that does not match the table's
- *       maximum effective width.</li>
- *   <li>One WARNING per Table containing at least one row with both TH and TD
- *       cells (mixed header/data in a single row is a header-classification
- *       ambiguity PAC flags). Verified: Filled has 3 such tables (Tables 2, 3, 4)
- *       matching PAC's Tables row 51P/9W.</li>
+ *   <li>One PASSED per Table where every row's effective width matches the
+ *       first row's width.</li>
+ *   <li>One WARNING ("Irregular table row") per row whose effective width
+ *       differs from the first row's width.</li>
  * </ul>
+ *
+ * <p>PAC uses the first row's column count as the canonical width (typically the
+ * header row establishes the table's schema). Using MAX instead under-counts:
+ * on OP_AoD Table 5 [4, 4, 6, 6, 6, 6, 6] with first-row-width = 4, PAC flags all
+ * 5 wider rows as irregular (5W); MAX-based counting flags only the 2 short rows.
  */
 public class ValidateTableRegularity implements Rule {
 
@@ -72,52 +74,23 @@ public class ValidateTableRegularity implements Rule {
         if (rows.isEmpty()) return;
 
         int[] colCounts = layOutRows(pdf, rows);
-        int max = 0;
-        for (int c : colCounts) if (c > max) max = c;
+        int firstWidth = colCounts[0];
 
-        boolean allEqual = true;
-        for (int c : colCounts) if (c != max) { allEqual = false; break; }
-        boolean hasMixedThTdRow = anyRowMixesThTd(pdf, rows);
+        boolean allMatch = true;
+        for (int c : colCounts) if (c != firstWidth) { allMatch = false; break; }
 
         int tablePage = StructUtils.pageNumOf(pdf, table.getPdfObject());
-        // Column-regularity: one PASSED per column-regular Table, one WARNING per
-        // irregular row otherwise.
-        if (allEqual) {
+        if (allMatch) {
             out.add(new FindingDTO(Severity.PASSED, TABLE_REGULARITY, tablePage, null));
         } else {
             for (int i = 0; i < rows.size(); i++) {
-                if (colCounts[i] == max) continue;
+                if (colCounts[i] == firstWidth) continue;
                 int rowPage = StructUtils.pageNumOf(pdf, rows.get(i).getPdfObject());
                 if (rowPage <= 0) rowPage = tablePage;
                 out.add(new FindingDTO(Severity.WARNING, TABLE_REGULARITY, rowPage, null,
-                        "Table rows shall have the same number of columns (taking into account column spans)"));
+                        "Irregular table row"));
             }
         }
-        // Additional mixed-TH+TD row warning is independent of column regularity.
-        if (hasMixedThTdRow) {
-            out.add(new FindingDTO(Severity.WARNING, TABLE_REGULARITY, tablePage, null,
-                    "Table row contains both TH and TD cells (mixed header/data classification)"));
-        }
-    }
-
-    /**
-     * True iff any row has BOTH a TH child AND a TD child (header and data cells
-     * in the same row — a structural ambiguity PAC warns on).
-     */
-    private static boolean anyRowMixesThTd(PdfDocument pdf, List<PdfStructElem> rows) {
-        for (PdfStructElem row : rows) {
-            List<IStructureNode> kids = row.getKids();
-            if (kids == null) continue;
-            boolean th = false, td = false;
-            for (IStructureNode k : kids) {
-                if (!(k instanceof PdfStructElem se)) continue;
-                String r = StructWalk.normRole(pdf, se);
-                if ("TH".equals(r)) th = true;
-                else if ("TD".equals(r)) td = true;
-                if (th && td) return true;
-            }
-        }
-        return false;
     }
 
     /**
