@@ -270,10 +270,22 @@ public final class VeraRuleMapping {
    *       is absent, not just when it's present-but-wrong. PAC's "PDF/UA identifier" row
    *       only checks that the identifier ({@code pdfuaid:part}) is declared; missing
    *       {@code rev} is not surfaced on that row.</li>
+   *   <li>{@code 8.2.5.2-2} — "Document structure element shall be in the PDF 2.0
+   *       namespace ({@code http://iso.org/pdf2/ssn})". Fires on UA-2 docs whose
+   *       {@code Document} element uses a non-standard or missing namespace URI. PAC's
+   *       "Logical structure syntax" row does not enforce namespace membership.</li>
+   *   <li>{@code 8.8-1} / {@code 8.8-2} — "All destinations whose target lies within
+   *       the current document shall be structure destinations". Fires on every page-
+   *       level {@code /Dest} and {@code /GoTo} action. PAC's "PDF syntax" row does not
+   *       enforce the structure-destination requirement; leaving these mapped inflates
+   *       the row with dozens of false-positive errors on real-world UA-2 documents.</li>
    * </ul>
    */
   private static final Set<String> UA2_EXCLUDED_RULES = Set.of(
-      "ISO 14289-2:2024-5-5"
+      "ISO 14289-2:2024-5-5",
+      "ISO 14289-2:2024-8.2.5.2-2",
+      "ISO 14289-2:2024-8.8-1",
+      "ISO 14289-2:2024-8.8-2"
   );
 
   // Declared last so both OBJECT_TO_CHECKPOINT and CLAUSE_OVERRIDES are initialised
