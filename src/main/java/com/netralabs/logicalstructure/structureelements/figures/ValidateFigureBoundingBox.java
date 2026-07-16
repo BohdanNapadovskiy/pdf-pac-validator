@@ -27,6 +27,12 @@ import static com.netralabs.domain.PDFUACheckpoint.BOUNDED_BOXES;
  * row (verified against Complex_Presentation_Sample: 28 P / 0 E). Deeper geometric
  * checks live in veraPDF's ISO 32005 profile (clause 8.2.5.28.2) and are routed
  * to this checkpoint via {@code VeraRuleMapping.CLAUSE_OVERRIDES}.
+ *
+ * <p>PAC-parity nuance: if <em>no</em> Figure in the document declares a Layout
+ * {@code /BBox}, PAC leaves the "Bounding boxes" row as N/A rather than flagging
+ * every Figure as missing (verified against OP_AoD sample: 29 Figures, 0 with
+ * BBox → PAC N/A). Only when at least one Figure declares a Layout BBox does
+ * PAC surface per-Figure pass/fail counts on this row.
  */
 public class ValidateFigureBoundingBox implements Rule {
 
@@ -36,9 +42,17 @@ public class ValidateFigureBoundingBox implements Rule {
     @Override
     public List<FindingDTO> run(Context ctx) {
         PdfDocument pdf = ctx.pdf();
-        List<FindingDTO> out = new ArrayList<>();
+        List<PdfStructElem> figures = new ArrayList<>();
         StructWalk.walk(pdf, (PdfStructElem elem) -> {
-            if (!"Figure".equals(StructWalk.normRole(pdf, elem))) return;
+            if ("Figure".equals(StructWalk.normRole(pdf, elem))) figures.add(elem);
+        });
+
+        boolean anyDeclaresBBox = figures.stream()
+                .anyMatch(f -> findLayoutBBox(f.getAttributes(false)) != null);
+        if (!anyDeclaresBBox) return List.of();
+
+        List<FindingDTO> out = new ArrayList<>();
+        for (PdfStructElem elem : figures) {
             PdfDictionary dict = elem.getPdfObject();
             int page = StructUtils.pageNumOf(pdf, dict);
             PdfArray bbox = findLayoutBBox(elem.getAttributes(false));
@@ -51,7 +65,7 @@ public class ValidateFigureBoundingBox implements Rule {
             } else {
                 out.add(new FindingDTO(Severity.PASSED, BOUNDED_BOXES, page, rectAsBBoxDto(bbox)));
             }
-        });
+        }
         return out;
     }
 
