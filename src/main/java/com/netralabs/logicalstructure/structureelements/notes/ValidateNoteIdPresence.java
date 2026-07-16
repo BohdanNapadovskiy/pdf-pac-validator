@@ -34,9 +34,12 @@ public class ValidateNoteIdPresence implements Rule {
             if (!"Note".equals(normRole(pdf, el))) return;
             sawNote[0] = true;
             PdfDictionary dict = el.getPdfObject();
+            int page = StructUtils.pageNumOf(pdf, dict);
             if (dict == null || !dict.containsKey(ID) || dict.getAsString(ID) == null) {
-                out.add(new FindingDTO(Severity.ERROR, ID_NOTE, StructUtils.pageNumOf(pdf, dict), null,
+                out.add(new FindingDTO(Severity.ERROR, ID_NOTE, page, null,
                         "Note structure element missing /ID"));
+            } else {
+                out.add(new FindingDTO(Severity.PASSED, ID_NOTE, page, null));
             }
         });
         if (!sawNote[0]) out.add(
