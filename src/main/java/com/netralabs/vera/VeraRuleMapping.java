@@ -45,7 +45,17 @@ public final class VeraRuleMapping {
       // ValidateReferencedExternalObjects emits per-page PASSED for resolved Do
       // references; vera 7.20-1's pass-2 count would stack on top and inflate
       // the row (Complex: 13 native + 8 vera = 21 vs PAC's 13).
-      PDFUACheckpoint.REFERENCED_EXTERNAL_OBJECT
+      PDFUACheckpoint.REFERENCED_EXTERNAL_OBJECT,
+      // Font-metadata checkpoints where PAC leaves the row as N/A on documents
+      // that pass trivially. On UA-2 documents the OBJECT_TO_CHECKPOINT catch-all
+      // (PDType0Font/PDCMap/PDTrueTypeFont/PDCIDFont) routes many vera pass-2
+      // assertions to these rows, inflating counts that PAC does not surface.
+      // Native rules already report real errors on the same checkpoints, and
+      // ValidateCidToGidMapForType2 emits per-font PASSED that matches PAC's tally.
+      PDFUACheckpoint.REGISTRY_ENTRIES,
+      PDFUACheckpoint.PREDEFINED_CMAPS,
+      PDFUACheckpoint.GLYPH_NAMES,
+      PDFUACheckpoint.CID_GID_MAPPING
   );
 
   public static boolean isErrorOnly(PDFUACheckpoint cp) {
