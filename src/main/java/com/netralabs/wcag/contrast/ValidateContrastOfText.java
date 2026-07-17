@@ -14,6 +14,7 @@ import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfName;
 import com.itextpdf.kernel.pdf.canvas.CanvasTag;
 import com.itextpdf.kernel.pdf.canvas.parser.EventType;
+import com.itextpdf.kernel.pdf.canvas.parser.IContentOperator;
 import com.itextpdf.kernel.pdf.canvas.parser.PdfCanvasProcessor;
 import com.itextpdf.kernel.pdf.canvas.parser.data.IEventData;
 import com.itextpdf.kernel.pdf.canvas.parser.data.ImageRenderInfo;
@@ -77,17 +78,43 @@ public class ValidateContrastOfText implements Rule {
     /** Bold large-text threshold in points. */
     private static final double BOLD_LARGE_TEXT_POINTS = 14.0;
 
+    /** Content-stream text-showing operators that produce visible glyphs. */
+    private static final String[] TEXT_SHOWING_OPS = {"Tj", "TJ", "'", "\""};
+
     @Override
     public List<FindingDTO> run(Context ctx) {
         List<FindingDTO> out = new ArrayList<>();
         PdfDocument pdf = ctx.pdf();
         for (int page = 1; page <= pdf.getNumberOfPages(); page++) {
             List<double[]> widgetRects = collectWidgetRects(pdf.getPage(page));
-            PdfCanvasProcessor proc = new PdfCanvasProcessor(
-                    new ContrastListener(page, out, widgetRects));
+            ContrastListener listener = new ContrastListener(page, out, widgetRects);
+            PdfCanvasProcessor proc = new PdfCanvasProcessor(listener);
+            // Wrap each text-showing operator so the per-glyph RENDER_TEXT events
+            // fired by iText inside a single Tj/TJ/'/" invocation are collapsed
+            // into one finding — matching PAC's per-operator granularity.
+            for (String op : TEXT_SHOWING_OPS) wrapTextOp(proc, op, listener);
             proc.processPageContent(pdf.getPage(page));
         }
         return out;
+    }
+
+    /**
+     * Register a wrapper that turns {@link ContrastListener} into a "text
+     * operator" scope: begin before the previous handler runs, end after.
+     * During the scope every RENDER_TEXT event is buffered; on {@code endOp}
+     * they are unioned into one finding.
+     */
+    private static void wrapTextOp(PdfCanvasProcessor proc, String op, ContrastListener listener) {
+        IContentOperator[] prev = new IContentOperator[1];
+        IContentOperator wrapper = (processor, operator, operands) -> {
+            listener.beginOp();
+            try {
+                if (prev[0] != null) prev[0].invoke(processor, operator, operands);
+            } finally {
+                listener.endOp();
+            }
+        };
+        prev[0] = proc.registerContentOperator(op, wrapper);
     }
 
     /** Rectangles of every Widget annotation on the page (from {@code /Rect}). Used to
@@ -190,6 +217,20 @@ public class ValidateContrastOfText implements Rule {
         private final Map<PdfImageXObject, BufferedImage> imageCache = new HashMap<>();
         private final List<double[]> widgetRects;
 
+        /** Depth of nested text-showing operator wrappers. iText's default {@code TJ}
+         *  handler invokes {@code Tj} internally for each string element in the array,
+         *  so an outer TJ wrapper opens depth 1 and each nested Tj bumps it to 2.
+         *  Only the outermost begin clears the buffer and the outermost end emits. */
+        private int opDepth;
+        /** Glyph events accumulated inside the current operator. Extracted at
+         *  buffer time because iText invalidates the {@link TextRenderInfo}
+         *  graphics state as soon as {@code eventOccurred} returns. */
+        private final List<GlyphEvent> opBuffer = new ArrayList<>();
+
+        /** Immutable snapshot of the fields we need from a {@link TextRenderInfo}. */
+        private record GlyphEvent(double[] fillRgb, double[] bbox, int renderMode,
+                                  float fontSize, String fontName, boolean typedArtifact) {}
+
         ContrastListener(int pageNum, List<FindingDTO> out, List<double[]> widgetRects) {
             this.pageNum = pageNum;
             this.out = out;
@@ -212,7 +253,48 @@ public class ValidateContrastOfText implements Rule {
                 return;
             }
             if (type == EventType.RENDER_TEXT) {
-                onText((TextRenderInfo) data);
+                GlyphEvent g = snapshot((TextRenderInfo) data);
+                if (g == null) return;
+                if (opDepth > 0) {
+                    opBuffer.add(g);
+                } else {
+                    // Text outside a wrapped operator is rare (unusual content
+                    // streams); fall back to per-event evaluation so it isn't lost.
+                    emitFinding(List.of(g));
+                }
+            }
+        }
+
+        /** Snapshot the fields we need before iText invalidates the graphics state. */
+        private static GlyphEvent snapshot(TextRenderInfo tri) {
+            Color fill = tri.getFillColor();
+            double[] fillRgb = fill != null ? toRgb(fill) : null;
+            double[] bbox = textBbox(tri);
+            String fontName = null;
+            if (tri.getFont() != null && tri.getFont().getPdfObject() != null) {
+                PdfName base = tri.getFont().getPdfObject().getAsName(PdfName.BaseFont);
+                if (base != null) fontName = base.getValue();
+            }
+            return new GlyphEvent(
+                    fillRgb, bbox, tri.getTextRenderMode(),
+                    tri.getFontSize(), fontName, isTypedArtifact(tri));
+        }
+
+        /** Called by the operator wrapper before iText's default handler processes
+         *  the operator's operands and fires per-glyph RENDER_TEXT events. */
+        void beginOp() {
+            if (opDepth == 0) opBuffer.clear();
+            opDepth++;
+        }
+
+        /** Called by the operator wrapper after iText's default handler returns.
+         *  Emits at most one finding for the accumulated glyphs — the union of their
+         *  bboxes evaluated once against the painters-model background. */
+        void endOp() {
+            opDepth--;
+            if (opDepth == 0 && !opBuffer.isEmpty()) {
+                emitFinding(opBuffer);
+                opBuffer.clear();
             }
         }
 
@@ -240,36 +322,44 @@ public class ValidateContrastOfText implements Rule {
             paintLog.add(new Paint(bbox[0], bbox[1], bbox[2], bbox[3], bi, ctm));
         }
 
-        private void onText(TextRenderInfo tri) {
-            if (tri.getTextRenderMode() == 3) return;
-            if (isTypedArtifact(tri)) return;
+        /**
+         * Evaluate a batch of per-glyph events fired by one text-showing operator.
+         * All events in the batch share text state (font, colour, artifact scope)
+         * — the metadata for the pass/fail decision comes from the first glyph
+         * that isn't filtered out; the geometry is the union of all glyph bboxes.
+         */
+        private void emitFinding(List<GlyphEvent> glyphs) {
+            GlyphEvent probe = null;
+            double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY;
+            double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+            for (GlyphEvent g : glyphs) {
+                if (g.renderMode == 3) continue;
+                if (g.typedArtifact) return;    // whole operator dropped — matches PAC
+                if (g.fillRgb == null) continue;
+                if (probe == null) probe = g;
+                if (g.bbox == null) continue;
+                if (g.bbox[0] < minX) minX = g.bbox[0];
+                if (g.bbox[1] < minY) minY = g.bbox[1];
+                if (g.bbox[2] > maxX) maxX = g.bbox[2];
+                if (g.bbox[3] > maxY) maxY = g.bbox[3];
+            }
+            if (probe == null || minX == Double.POSITIVE_INFINITY) return;
 
-            Color fill = tri.getFillColor();
-            if (fill == null) return;
-            double[] fillRgb = toRgb(fill);
-            if (fillRgb == null) return;
+            double[] fillRgb = probe.fillRgb;
+            double[] textBox = {minX, minY, maxX, maxY};
 
-            double[] textBox = textBbox(tri);
-            if (textBox == null) return;
-
-            // Skip text painted inside a Widget annotation's /Rect — the viewer draws
-            // the widget's own appearance-stream text at the same location, so any
-            // content-stream fallback text there is a duplicate. PAC excludes those
-            // to avoid counting the same on-screen text twice.
+            // Skip text painted inside a Widget annotation's /Rect — the viewer
+            // draws the widget's own appearance-stream text at the same location,
+            // so any content-stream fallback text there is a duplicate.
             if (insideAnyWidget(textBox)) return;
 
             double[] bgRgb = backgroundAt(textBox, fillRgb);
 
-
-            // Skip pure-white text on pure-white background — visually invisible
-            // form-decoration text (Filled_Graduate has 549 such events used as
-            // filler between form fields). PAC excludes these from the 1.4.3 tally
-            // rather than flagging as failures. Tolerance is strict (channels
-            // > 0.98) so real light text over image backgrounds still counts.
+            // Skip pure-white text on pure-white background (invisible filler).
             if (isPureWhite(fillRgb) && isPureWhite(bgRgb)) return;
 
             double ratio = contrastRatio(fillRgb, bgRgb);
-            double threshold = isLargeText(tri) ? THRESHOLD_LARGE : THRESHOLD_REGULAR;
+            double threshold = isLargeText(probe) ? THRESHOLD_LARGE : THRESHOLD_REGULAR;
 
             if (ratio >= threshold) {
                 out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, null));
@@ -374,8 +464,11 @@ public class ValidateContrastOfText implements Rule {
     }
 
     /**
-     * True iff the innermost marked-content tag is an {@code /Artifact} BDC that
-     * carries an explicit {@code /Type} property.
+     * True iff the innermost marked-content tag is a classified {@code /Artifact}
+     * BDC — an Artifact with an explicit {@code /Type} property (Pagination /
+     * Page / Layout / Background). PAC excludes these from the 1.4.3 tally as
+     * decorative content. Untyped {@code /Artifact} scopes are kept (they may
+     * still carry visible text the user reads).
      */
     private static boolean isTypedArtifact(TextRenderInfo tri) {
         List<CanvasTag> h = tri.getCanvasTagHierarchy();
@@ -453,15 +546,13 @@ public class ValidateContrastOfText implements Rule {
      * WCAG large-text threshold: >= 18pt, or >= 14pt bold. Detects bold via the
      * font's BaseFont name (contains "Bold" or "Heavy"/"Black").
      */
-    private static boolean isLargeText(TextRenderInfo tri) {
-        float pts = tri.getFontSize();
+    private static boolean isLargeText(ValidateContrastOfText.ContrastListener.GlyphEvent g) {
+        float pts = g.fontSize();
         if (pts <= 0) return false;
         if (pts >= LARGE_TEXT_POINTS) return true;
         if (pts < BOLD_LARGE_TEXT_POINTS) return false;
-        if (tri.getFont() == null || tri.getFont().getPdfObject() == null) return false;
-        PdfName base = tri.getFont().getPdfObject().getAsName(PdfName.BaseFont);
-        if (base == null) return false;
-        String name = base.getValue().toLowerCase(java.util.Locale.ROOT);
+        if (g.fontName() == null) return false;
+        String name = g.fontName().toLowerCase(java.util.Locale.ROOT);
         return name.contains("bold") || name.contains("heavy") || name.contains("black");
     }
 }
