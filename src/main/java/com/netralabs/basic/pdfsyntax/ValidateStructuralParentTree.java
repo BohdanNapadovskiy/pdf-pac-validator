@@ -4,6 +4,7 @@ import com.itextpdf.kernel.pdf.*;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
 import com.netralabs.domain.Severity;
+import com.netralabs.report.BBoxDTO;
 import com.netralabs.report.FindingDTO;
 
 import java.util.*;
@@ -55,16 +56,20 @@ public class ValidateStructuralParentTree implements Rule {
 
         // Also check annotation /StructParent keys resolve into /ParentTree /Nums.
         // PAC rolls this up to a single aggregate finding per document, so emit at most
-        // one error even when multiple annotations are unresolved.
-        if (hasUnresolvedAnnotStructParent(pdf, nums)) {
-            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, 0, null,
+        // one error even when multiple annotations are unresolved. The page + rect
+        // come from the first offender so the detailed report can highlight it.
+        UnresolvedAnnot ua = firstUnresolvedAnnotStructParent(pdf, nums);
+        if (ua != null) {
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, ua.page, ua.bbox,
                     "Inconsistent entry found"));
         }
 
         return out;
     }
 
-    private static boolean hasUnresolvedAnnotStructParent(PdfDocument pdf, Map<Integer, PdfObject> nums) {
+    private record UnresolvedAnnot(int page, BBoxDTO bbox) {}
+
+    private static UnresolvedAnnot firstUnresolvedAnnotStructParent(PdfDocument pdf, Map<Integer, PdfObject> nums) {
         int pages = pdf.getNumberOfPages();
         for (int i = 1; i <= pages; i++) {
             PdfDictionary page = pdf.getPage(i).getPdfObject();
@@ -75,10 +80,30 @@ public class ValidateStructuralParentTree implements Rule {
                 if (annot == null) continue;
                 PdfNumber sp = annot.getAsNumber(new PdfName("StructParent"));
                 if (sp == null) continue;
-                if (!nums.containsKey(sp.intValue())) return true;
+                if (!nums.containsKey(sp.intValue())) {
+                    return new UnresolvedAnnot(i, rectToBBox(annot.getAsArray(PdfName.Rect)));
+                }
             }
         }
-        return false;
+        return null;
+    }
+
+    /** Convert a PDF /Rect [x1 y1 x2 y2] to a BBoxDTO in top/left/height/width form. */
+    public static BBoxDTO rectToBBox(PdfArray rect) {
+        if (rect == null || rect.size() < 4) return null;
+        try {
+            float x1 = rect.getAsNumber(0).floatValue();
+            float y1 = rect.getAsNumber(1).floatValue();
+            float x2 = rect.getAsNumber(2).floatValue();
+            float y2 = rect.getAsNumber(3).floatValue();
+            float left = Math.min(x1, x2);
+            float right = Math.max(x1, x2);
+            float bottom = Math.min(y1, y2);
+            float top = Math.max(y1, y2);
+            return new BBoxDTO(top, left, top - bottom, right - left);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static void collectNums(PdfDictionary node, Map<Integer, PdfObject> nums) {

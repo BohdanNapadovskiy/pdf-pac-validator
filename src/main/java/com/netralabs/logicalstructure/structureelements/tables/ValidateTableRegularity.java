@@ -10,9 +10,11 @@ import com.itextpdf.kernel.pdf.tagging.IStructureNode;
 import com.itextpdf.kernel.pdf.tagging.PdfStructElem;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
+import com.netralabs.basic.content.PageMcidBboxes;
 import com.netralabs.basic.pdfsyntax.StructUtils;
 import com.netralabs.domain.Severity;
 import com.netralabs.logicalstructure.structureelements.StructWalk;
+import com.netralabs.report.BBoxDTO;
 import com.netralabs.report.FindingDTO;
 
 import java.util.ArrayList;
@@ -60,15 +62,21 @@ public class ValidateTableRegularity implements Rule {
             done = pdf;
         }
 
+        // Lazy per-page MCID→bbox cache so irregular rows can carry a bbox pointing at
+        // the offending row's on-page rectangle. Building it once per page is O(page),
+        // and only pages that actually host irregular rows are walked.
+        Map<Integer, Map<Integer, BBoxDTO>> mcidCache = new HashMap<>();
         List<FindingDTO> out = new ArrayList<>();
         StructWalk.walk(pdf, elem -> {
             if (!"Table".equals(StructWalk.normRole(pdf, elem))) return;
-            checkTable(pdf, elem, out);
+            checkTable(pdf, elem, mcidCache, out);
         });
         return out;
     }
 
-    private static void checkTable(PdfDocument pdf, PdfStructElem table, List<FindingDTO> out) {
+    private static void checkTable(PdfDocument pdf, PdfStructElem table,
+                                   Map<Integer, Map<Integer, BBoxDTO>> mcidCache,
+                                   List<FindingDTO> out) {
         List<PdfStructElem> rows = new ArrayList<>();
         collectRows(pdf, table, rows);
         if (rows.isEmpty()) return;
@@ -85,12 +93,108 @@ public class ValidateTableRegularity implements Rule {
         } else {
             for (int i = 0; i < rows.size(); i++) {
                 if (colCounts[i] == firstWidth) continue;
-                int rowPage = StructUtils.pageNumOf(pdf, rows.get(i).getPdfObject());
+                PdfStructElem row = rows.get(i);
+                // Walk the row's descendants once to collect (page, mcid) pairs;
+                // derive the row's page from the majority of those pairs (typically
+                // all on the same page).
+                List<PageMcid> descendants = new ArrayList<>();
+                collectPageMcids(row, 0, descendants);
+                int rowPage = dominantPage(descendants);
                 if (rowPage <= 0) rowPage = tablePage;
-                out.add(new FindingDTO(Severity.WARNING, TABLE_REGULARITY, rowPage, null,
+                BBoxDTO bbox = rowBBox(pdf, descendants, mcidCache);
+                out.add(new FindingDTO(Severity.WARNING, TABLE_REGULARITY, rowPage, bbox,
                         "Irregular table row"));
             }
         }
+    }
+
+    /** Union of the on-page bboxes of each (page, mcid) descendant of the row. */
+    private static BBoxDTO rowBBox(PdfDocument pdf, List<PageMcid> descendants,
+                                   Map<Integer, Map<Integer, BBoxDTO>> mcidCache) {
+        BBoxDTO acc = null;
+        for (PageMcid d : descendants) {
+            if (d.page <= 0) continue;
+            Map<Integer, BBoxDTO> map = mcidCache.computeIfAbsent(d.page, p -> PageMcidBboxes.forPage(pdf, p));
+            BBoxDTO b = map.get(d.mcid);
+            if (b == null) continue;
+            acc = acc == null ? b : unionBBox(acc, b);
+        }
+        return acc;
+    }
+
+    private static int dominantPage(List<PageMcid> descendants) {
+        Map<Integer, Integer> tally = new HashMap<>();
+        int best = 0, bestCount = 0;
+        for (PageMcid d : descendants) {
+            if (d.page <= 0) continue;
+            int c = tally.merge(d.page, 1, Integer::sum);
+            if (c > bestCount) { bestCount = c; best = d.page; }
+        }
+        return best;
+    }
+
+    private record PageMcid(int page, int mcid) {}
+
+    /**
+     * Recursively collect (page, mcid) pairs for every marked-content descendant
+     * of {@code node}. Page comes from the nearest {@code /Pg} on the chain — MCR
+     * dicts carry their own {@code /Pg}, and a struct elem may cache one that its
+     * MCID-referenced content lives on.
+     */
+    private static void collectPageMcids(IStructureNode node, int inheritedPage, List<PageMcid> out) {
+        if (node instanceof PdfStructElem se) {
+            PdfDictionary pgDict = se.getPdfObject().getAsDictionary(PdfName.Pg);
+            int localPage = pgDict != null ? pageOf(se, pgDict) : inheritedPage;
+            PdfObject k = se.getPdfObject().get(PdfName.K);
+            if (k != null) collectPageMcidsFromK(se, k, localPage, out);
+            List<IStructureNode> kids = node.getKids();
+            if (kids != null) for (IStructureNode kid : kids) collectPageMcids(kid, localPage, out);
+        }
+    }
+
+    private static void collectPageMcidsFromK(PdfStructElem owner, PdfObject k, int inheritedPage, List<PageMcid> out) {
+        if (k == null) return;
+        if (k instanceof PdfNumber n) {
+            // Bare MCID number — page must come from the owning struct elem's /Pg
+            // (the inherited page).
+            if (inheritedPage > 0) out.add(new PageMcid(inheritedPage, n.intValue()));
+        } else if (k instanceof PdfArray arr) {
+            for (int i = 0; i < arr.size(); i++) collectPageMcidsFromK(owner, arr.get(i), inheritedPage, out);
+        } else if (k instanceof PdfDictionary d) {
+            PdfNumber mcid = d.getAsNumber(new PdfName("MCID"));
+            if (mcid != null) {
+                PdfDictionary pgDict = d.getAsDictionary(PdfName.Pg);
+                int page = pgDict != null ? pageOf(owner, pgDict) : inheritedPage;
+                if (page > 0) out.add(new PageMcid(page, mcid.intValue()));
+            }
+        }
+    }
+
+    private static int pageOf(PdfStructElem se, PdfDictionary pgDict) {
+        try {
+            var page = se.getPdfObject().getIndirectReference() != null
+                    ? se.getPdfObject().getIndirectReference().getDocument().getPage(pgDict)
+                    : null;
+            return page != null ? page.getDocument().getPageNumber(page) : 0;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static BBoxDTO unionBBox(BBoxDTO a, BBoxDTO b) {
+        float aTop = a.getTop();
+        float aBottom = aTop - a.getHeight();
+        float aLeft = a.getLeft();
+        float aRight = aLeft + a.getWidth();
+        float bTop = b.getTop();
+        float bBottom = bTop - b.getHeight();
+        float bLeft = b.getLeft();
+        float bRight = bLeft + b.getWidth();
+        float top = Math.max(aTop, bTop);
+        float bottom = Math.min(aBottom, bBottom);
+        float left = Math.min(aLeft, bLeft);
+        float right = Math.max(aRight, bRight);
+        return new BBoxDTO(top, left, top - bottom, right - left);
     }
 
     /**
