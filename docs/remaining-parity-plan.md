@@ -42,24 +42,50 @@ reduction). Residual over-count is ~76% vs PAC (2199 vs 1246 on OP_AoD).
 
 ### Residual root-cause hypotheses after per-Tj batching
 
-1. **Bbox-union background misclassification (high).** Per-Tj batching unions
-   the glyph bboxes, so the covering-paint lookup uses a wider rectangle than
-   PAC's per-glyph query. When the wider bbox overlaps a darker paint that a
-   narrow glyph bbox wouldn't, we classify as ERROR while PAC classifies as
-   PASSED. Explains OP_AoD's E+98 over-count. Fix: for each glyph in the Tj
-   query the background separately, and use worst-case per operator.
-2. **Form XObject processing (medium).** iText's default `Do` handler recurses
-   into Form XObjects, firing nested `Tj/TJ` events. Widget appearance streams
-   are dropped via `insideAnyWidget`, but non-widget Form XObjects (e.g.
-   decorative overlays) may add ~250 events PAC doesn't see. Fix: register a
-   custom `IXObjectDoHandler` that skips Form-XObject content-stream recursion.
-3. **Image-pixel misclassification at bbox centre (medium, Complex-only).** For
-   text over photos with local colour variance, the single centre-pixel sample
-   under-approximates contrast worst-case. Complex's 9-event delta is well
-   within this noise band.
-4. **Undiscovered exclusion criterion (low, CalSAWS-only, pre-Tj-batch).** Post
-   the pure-white and widget-`/Rect` filters, CalSAWS previously had 348 events
-   we count that PAC doesn't. Re-measure after Tj-batching landed.
+**Diagnostic run 2026-07-17 on OP_AoD Benchmark** — instrumented the rule to
+bucket emissions by scope (MCID-tagged vs untagged, inside `Do` vs outside):
+
+| Bucket | Count | Errors |
+|---|---:|---:|
+| Total emissions | 2199 | 136 |
+| Tagged (has MCID in canvas hierarchy) | 979 | **0** |
+| Untagged (no MCID anywhere) | 1220 | **136** |
+| Inside `Do` XObject scope | 0 | — |
+| `Do` invocations (with 25 form XObjects invoked) | 25 | — |
+
+Two clear findings:
+
+1. **Form XObject recursion is NOT a source.** iText's default `Do` handler
+   for Form XObjects is a no-op unless a custom `IXObjectDoHandler` is
+   registered — we don't register one, so nested Tj events never fire.
+   Hypothesis 2 (below) is ruled out for this corpus.
+2. **All 136 errors are in untagged content.** All 979 tagged emissions
+   pass contrast. PAC reports 38 errors + 1208 passes on the same doc;
+   since our tagged-only would be 0E/979P (drops all errors PAC classifies),
+   PAC clearly includes SOME untagged content. From 979 + X = 1246 →
+   X ≈ 267, PAC includes ~22% of our 1220 untagged emissions.
+
+**What we don't know**: which 267 of our 1220 untagged emissions PAC
+includes. The untagged bucket contains untyped `/Artifact` scopes, non-MCID
+BDCs, and bare content — no aggregate-count signal distinguishes the ones
+PAC counts from the ones it drops.
+
+1. **Untagged-subset criterion (high, blocked on data).** PAC includes a
+   specific subset of untagged text. Candidates: only untyped `/Artifact`
+   scopes with specific sub-attributes; only untagged text with a minimum
+   visible extent; only untagged text over non-white backgrounds.
+   **Fix requires PAC's per-event "PDF report" export** — see cross-cutting
+   note at the bottom. Guessing without ground truth risks dropping the 38
+   errors PAC does classify.
+2. **Bbox-union background misclassification (secondary).** Even after
+   fixing the subset criterion, some errors will still misclassify because
+   per-Tj bbox unions catch darker paints per-glyph bboxes wouldn't. Fix:
+   per-glyph background sampling within a Tj batch — but only worth doing
+   after (1) lands, since count mismatches dwarf classification mismatches.
+3. **Image-pixel misclassification at bbox centre (medium, Complex-only).**
+   For text over photos with local colour variance, the single centre-pixel
+   sample under-approximates contrast worst-case. Complex's 9-event delta
+   is well within this noise band.
 
 ### Implementation plan
 
