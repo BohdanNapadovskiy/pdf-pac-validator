@@ -264,7 +264,6 @@ public enum PDFUACheckpoint {
             "Natural language",
             "Correctness of language attribute",
             "Document language metadata contains a syntax error",
-            "Document language metadata contains a syntax error",
             ValidateLangAttributeCorrectness::new,
             Phase.DOCUMENT
     ),
@@ -388,7 +387,7 @@ public enum PDFUACheckpoint {
             "Logical Structure",
             "Structure Elements",
             "Notes",
-            "Unique \"ID\" entries in Note structure elements",
+            "Unique\" ID\" entries in Note structure elements",
             "",
             ValidateNoteIdUniqueness::new,
             Phase.DOCUMENT
