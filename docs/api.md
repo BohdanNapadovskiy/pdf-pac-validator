@@ -51,9 +51,11 @@ the mount points (e.g. `/pdfs/foo.pdf`, `/reports`), not host paths.
 
 ### `POST /api/validate`
 
-Runs the full PDF/UA + WCAG pipeline, writes **two JSON files** to disk (the
-PAC-shaped simple + detailed reports), and returns the simple report inline
-alongside a `jobId` the client uses to fetch the detailed one later.
+Runs the full PDF/UA + WCAG pipeline, writes the PAC-shaped **simple report** to
+disk, and returns it inline together with a `jobId`. The detailed report is
+**not** generated here — the findings + page CropBox ranges are cached against
+the `jobId`, and the detailed report is built on demand when the client calls
+`GET /api/report/{jobId}/detailed`.
 
 **Request headers**
 
@@ -75,8 +77,10 @@ alongside a `jobId` the client uses to fetch the detailed one later.
 | `pdfPath` | string | yes | Absolute path to the source PDF, readable by the server process. MSYS/Git-Bash style (`/c/foo/bar.pdf`) is auto-normalized to Windows form. |
 | `outputFolder` | string | no | Absolute path to the folder where the reports are written. If omitted or blank, they are written next to the source PDF. |
 
-The output filenames are always `<pdf-basename>.simple.json` and
-`<pdf-basename>.detailed.json`. Existing files at those paths are overwritten.
+The simple-report filename is always `<pdf-basename>.simple.json`. Existing
+files at that path are overwritten. The detailed report is written to
+`<pdf-basename>.detailed.json` **only** once the client fetches it via
+`GET /api/report/{jobId}/detailed`.
 
 **Response body**
 
@@ -85,7 +89,6 @@ The output filenames are always `<pdf-basename>.simple.json` and
   "jobId": "6a9754b2-3fe5-405b-95c0-f71c3d861e23",
   "sourceFileName": "sample.pdf",
   "simpleReportPath": "C:\\projects\\pdf\\report\\sample.simple.json",
-  "detailedReportPath": "C:\\projects\\pdf\\report\\sample.detailed.json",
   "status": "success",
   "simpleReport": {
     "body": { "jobId": "...", "name": "sample", "documentInformation": { ... },
@@ -99,10 +102,9 @@ The output filenames are always `<pdf-basename>.simple.json` and
 
 | Field | Type | Description |
 |---|---|---|
-| `jobId` | string \| null | UUID for the run. Use with `GET /api/report/{jobId}/…`. `null` on failure. |
+| `jobId` | string \| null | UUID for the run. Pass in the URL for `GET /api/report/{jobId}/detailed`. `null` on failure. |
 | `sourceFileName` | string \| null | Filename portion of `pdfPath`. `null` when `pdfPath` was missing/blank. |
 | `simpleReportPath` | string \| null | Absolute path of the written simple report. `null` on failure. |
-| `detailedReportPath` | string \| null | Absolute path of the written detailed report. `null` on failure. |
 | `status` | string | `"success"` or `"failed"`. |
 | `simpleReport` | object \| null | Inline copy of the simple report body — the PAC-shaped hierarchical result. `null` on failure. |
 
@@ -110,26 +112,30 @@ The output filenames are always `<pdf-basename>.simple.json` and
 
 | Code | Meaning |
 |---|---|
-| `200 OK` | Reports generated and written. |
+| `200 OK` | Simple report generated and written. |
 | `400 Bad Request` | `pdfPath` missing or blank. |
 | `500 Internal Server Error` | Validation failed (file not found, unreadable PDF, iText/veraPDF error). Server log contains the stack trace. |
 
 ### `GET /api/report/{jobId}/detailed`
 
-Streams the detailed report file (per-instance page + bbox for viewer
-highlighting) associated with a previously generated `jobId`.
+Builds the detailed report on demand from the cached findings for `jobId`
+and returns it as JSON. Also persists it to disk as
+`<pdf-basename>.detailed.json` in the original output folder so a subsequent
+call is cheap.
 
-- `200 OK` with `Content-Type: application/json` — the detailed JSON body.
+- `200 OK` with `Content-Type: application/json` — the detailed report body.
 - `404 Not Found` — unknown `jobId` (process restarted, or job never ran).
+- `500 Internal Server Error` — building the detailed report failed.
 
-The registry is in-memory (a `ConcurrentHashMap` in `ValidationService`) — a
-process restart clears it, so persist the paths client-side if you need
-durability across restarts.
+The `jobId → { findings, cropBoxRanges, paths }` registry is in-memory (a
+`ConcurrentHashMap` in `ValidationService`) — a JVM restart clears it, so
+persist the simple report response client-side if you need durability
+across restarts (and regenerate via a fresh POST when the state is lost).
 
 ### `GET /api/report/{jobId}/simple`
 
-Same as above, but streams the simple report file. Kept mostly for symmetry
-— the POST response already inlines the simple report.
+Streams the simple report file from disk. Kept mostly for symmetry — the
+POST response already inlines the simple report.
 
 ### Examples
 
@@ -159,7 +165,7 @@ curl -X POST http://localhost:8080/api/validate \
   -d '{"pdfPath":"/does-not-exist.pdf"}'
 ```
 
-Returns `HTTP 500` with `{"jobId":null,"sourceFileName":"does-not-exist.pdf","simpleReportPath":null,"detailedReportPath":null,"status":"failed","simpleReport":null}`.
+Returns `HTTP 500` with `{"sourceFileName":"does-not-exist.pdf","status":"failed"}` (other fields omitted via `@JsonInclude(NON_NULL)`).
 
 ---
 

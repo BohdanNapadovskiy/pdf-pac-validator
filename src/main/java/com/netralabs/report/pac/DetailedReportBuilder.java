@@ -28,10 +28,24 @@ public final class DetailedReportBuilder {
 
     private DetailedReportBuilder() {}
 
+    /**
+     * Convenience overload — computes {@code cropBoxRanges} from the open PDF.
+     * Prefer {@link #build(List, List)} when the PDF has already been closed
+     * (e.g. detailed report is built lazily from cached findings).
+     */
     public static DetailedBodyDTO build(PdfDocument pdf, List<FindingDTO> findings) {
+        return build(findings, buildCropBoxRanges(pdf));
+    }
+
+    /**
+     * Build the detailed body from a findings list and a pre-computed set of
+     * {@code cropBoxRanges}. Doesn't touch the PDF — safe to call after the
+     * source document has been closed.
+     */
+    public static DetailedBodyDTO build(List<FindingDTO> findings, List<CropBoxRangeDTO> cropBoxRanges) {
         DetailedBodyDTO body = new DetailedBodyDTO();
         body.setIssues(buildTypeSections(findings));
-        body.setCropBoxRanges(buildCropBoxRanges(pdf));
+        body.setCropBoxRanges(cropBoxRanges == null ? List.of() : cropBoxRanges);
         return body;
     }
 
@@ -121,7 +135,8 @@ public final class DetailedReportBuilder {
         return new IssueDetailDTO(pageIndex, new RectangleDTO(top, bottom, left, right));
     }
 
-    private static List<CropBoxRangeDTO> buildCropBoxRanges(PdfDocument pdf) {
+    /** Compute contiguous same-CropBox page ranges for the open document. */
+    public static List<CropBoxRangeDTO> buildCropBoxRanges(PdfDocument pdf) {
         List<CropBoxRangeDTO> ranges = new ArrayList<>();
         if (pdf == null) return ranges;
         int pageCount = pdf.getNumberOfPages();

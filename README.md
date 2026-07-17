@@ -33,22 +33,21 @@ curl -X POST http://localhost:8080/api/validate \
   -d '{"pdfPath":"/pdfs/sample.pdf","outputFolder":"/reports"}'
 ```
 
-The response inlines the PAC-shaped simple report and returns a `jobId` for
-retrieving the detailed report:
+The response inlines the PAC-shaped simple report and returns a `jobId`. The
+detailed report isn't built during POST — fetch it on demand via `jobId`:
 
 ```json
 {
   "jobId": "6a9754b2-3fe5-405b-95c0-f71c3d861e23",
   "sourceFileName": "sample.pdf",
   "simpleReportPath": "/reports/sample.simple.json",
-  "detailedReportPath": "/reports/sample.detailed.json",
   "status": "success",
   "simpleReport": { "body": { ... }, "version": { "major": 2, "minor": 0 } }
 }
 ```
 
 ```bash
-# Fetch the detailed report (per-instance page + bboxes for viewer highlighting)
+# Fetch the detailed report — built on demand from cached findings, no PDF re-open.
 curl http://localhost:8080/api/report/6a9754b2-3fe5-405b-95c0-f71c3d861e23/detailed
 ```
 

@@ -7,6 +7,7 @@ import com.netralabs.report.FindingDTO;
 import com.netralabs.report.ReportBuilder;
 import com.netralabs.report.ReportDTO;
 import com.netralabs.report.ReportWriter;
+import com.netralabs.report.pac.CropBoxRangeDTO;
 import com.netralabs.report.pac.DetailedBodyDTO;
 import com.netralabs.report.pac.DetailedReportBuilder;
 import com.netralabs.report.pac.DetailedReportDTO;
@@ -34,39 +35,40 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+/**
+ * Orchestrates a PDF validation run.
+ *
+ * <p><strong>Two-step lifecycle</strong> matching the customer's API contract:
+ * <ol>
+ *   <li>{@link #generateSimple} runs the full pipeline once, writes the
+ *       PAC-shaped simple report to disk, and caches the findings + page
+ *       CropBox ranges keyed by {@code jobId}. The PDF is opened and closed
+ *       during this call.</li>
+ *   <li>{@link #buildDetailed} looks up the cached state for a given
+ *       {@code jobId} and produces the detailed report on demand — no PDF
+ *       re-open, no pipeline re-run.</li>
+ * </ol>
+ *
+ * The registry is a process-local {@link ConcurrentHashMap}; a restart clears
+ * it, so callers that need durability should persist the simple report and
+ * regenerate.
+ */
 @Service
 public class ValidationService {
 
-  /**
-   * In-memory registry mapping a job id to the pair of report files written for
-   * that job. Populated on every successful {@link #validatePair} run and read by
-   * the controller's GET-by-jobId endpoints. This is process-local — restarting
-   * the JVM clears the registry, so callers that need durability should persist
-   * paths themselves.
-   */
-  private final ConcurrentMap<String, ValidationResult> jobs = new ConcurrentHashMap<>();
-
-  public Path validate(String sourcePdfPath, String outputFolder) throws Exception {
-    ValidationResult result = validatePair(sourcePdfPath, outputFolder, false);
-    return result.simplePath();
-  }
-
-  /** Look up a previously generated job by its id. */
-  public Optional<ValidationResult> findJob(String jobId) {
-    if (jobId == null || jobId.isBlank()) return Optional.empty();
-    return Optional.ofNullable(jobs.get(jobId));
-  }
+  private final ConcurrentMap<String, CachedJob> jobs = new ConcurrentHashMap<>();
 
   /**
-   * Runs the full validation pipeline once, emitting the two PAC-shaped reports
-   * (simple + detailed) side by side. Optionally also writes the legacy combined
-   * report ({@code <name>.report.json}) when {@code emitLegacy} is true.
+   * Runs the full validation pipeline, writes {@code <name>.simple.json},
+   * and caches the state needed to build the detailed report later. When
+   * {@code emitLegacy} is true, additionally writes the pre-PAC combined
+   * report {@code <name>.report.json}.
    *
    * @param sourcePdfPath source PDF (Windows path; MSYS-style paths accepted)
    * @param outputFolder  destination folder for output files; null = alongside source
    * @param emitLegacy    when true, additionally writes the pre-PAC combined report
    */
-  public ValidationResult validatePair(String sourcePdfPath, String outputFolder, boolean emitLegacy) throws Exception {
+  public SimpleResult generateSimple(String sourcePdfPath, String outputFolder, boolean emitLegacy) throws Exception {
     String path = normalizePath(sourcePdfPath);
     String folder = normalizePath(outputFolder);
     String jobId = UUID.randomUUID().toString();
@@ -81,10 +83,8 @@ public class ValidationService {
       // can highlight them.
       FindingBboxEnricher.enrich(pdf, findings);
 
-      SimpleReportDTO simple = buildSimple(pdf, path, findings, jobId, name, creationDate);
-      DetailedReportDTO detailed = buildDetailed(pdf, findings, jobId, name, creationDate);
+      SimpleReportDTO simple = buildSimpleReport(pdf, path, findings, jobId, name, creationDate);
       Path simplePath = PacReportWriter.writeSimple(simple, path, folder);
-      Path detailedPath = PacReportWriter.writeDetailed(detailed, path, folder);
 
       Path legacyPath = null;
       if (emitLegacy) {
@@ -93,14 +93,51 @@ public class ValidationService {
         legacy.getReports().setQuality(QualityReportBuilder.build(findings));
         legacyPath = ReportWriter.write(legacy, path, resolveLegacyOutput(path, folder));
       }
-      ValidationResult result = new ValidationResult(jobId, simple, simplePath, detailedPath, legacyPath);
-      jobs.put(jobId, result);
-      return result;
+
+      // Cache everything the detailed report needs so we don't have to
+      // re-open the PDF when the client fetches it.
+      List<CropBoxRangeDTO> cropBoxRanges = DetailedReportBuilder.buildCropBoxRanges(pdf);
+      jobs.put(jobId, new CachedJob(jobId, name, path, folder, creationDate,
+              findings, cropBoxRanges, simplePath));
+
+      return new SimpleResult(jobId, simple, simplePath, legacyPath);
     }
   }
 
-  private static SimpleReportDTO buildSimple(PdfDocument pdf, String path, List<FindingDTO> findings,
-                                             String jobId, String name, String creationDate) {
+  /**
+   * Build the detailed report body from cached state. Optionally also
+   * persists it to disk as {@code <name>.detailed.json} in the same
+   * output folder used at {@link #generateSimple} time.
+   *
+   * @return {@code Optional.empty()} when the {@code jobId} is unknown
+   *         (never generated, or evicted by a restart).
+   */
+  public Optional<DetailedResult> buildDetailed(String jobId, boolean persistToDisk) throws Exception {
+    if (jobId == null || jobId.isBlank()) return Optional.empty();
+    CachedJob cached = jobs.get(jobId);
+    if (cached == null) return Optional.empty();
+
+    DetailedBodyDTO body = DetailedReportBuilder.build(cached.findings, cached.cropBoxRanges);
+    body.setJobId(cached.jobId);
+    body.setName(cached.name);
+    body.setCreationDate(cached.creationDate);
+    DetailedReportDTO detailed = new DetailedReportDTO(body, VersionDTO.current());
+
+    Path writtenPath = null;
+    if (persistToDisk) {
+      writtenPath = PacReportWriter.writeDetailed(detailed, cached.sourcePath, cached.outputFolder);
+    }
+    return Optional.of(new DetailedResult(detailed, writtenPath));
+  }
+
+  /** Look up a previously generated job by its id. */
+  public Optional<CachedJob> findJob(String jobId) {
+    if (jobId == null || jobId.isBlank()) return Optional.empty();
+    return Optional.ofNullable(jobs.get(jobId));
+  }
+
+  private static SimpleReportDTO buildSimpleReport(PdfDocument pdf, String path, List<FindingDTO> findings,
+                                                   String jobId, String name, String creationDate) {
     SimpleBodyDTO body = new SimpleBodyDTO();
     body.setJobId(jobId);
     body.setName(name);
@@ -109,15 +146,6 @@ public class ValidationService {
     body.setReports(sections);
     body.setCreationDate(creationDate);
     return new SimpleReportDTO(body, VersionDTO.current());
-  }
-
-  private static DetailedReportDTO buildDetailed(PdfDocument pdf, List<FindingDTO> findings,
-                                                 String jobId, String name, String creationDate) {
-    DetailedBodyDTO body = DetailedReportBuilder.build(pdf, findings);
-    body.setJobId(jobId);
-    body.setName(name);
-    body.setCreationDate(creationDate);
-    return new DetailedReportDTO(body, VersionDTO.current());
   }
 
   private static String displayName(String sourcePath) {
@@ -136,15 +164,29 @@ public class ValidationService {
   }
 
   /**
-   * Result of one validation run — carries the shared {@code jobId}, the parsed
-   * simple report (returned inline on POST), and the file paths for downstream
-   * lookup via GET /api/report/{jobId}/...
+   * Cached state for a generated job — enough to build the detailed report
+   * lazily without re-opening the source PDF.
    */
-  public record ValidationResult(String jobId,
-                                 SimpleReportDTO simpleReport,
-                                 Path simplePath,
-                                 Path detailedPath,
-                                 Path legacyPath) {}
+  public record CachedJob(String jobId,
+                          String name,
+                          String sourcePath,
+                          String outputFolder,
+                          String creationDate,
+                          List<FindingDTO> findings,
+                          List<CropBoxRangeDTO> cropBoxRanges,
+                          Path simplePath) {}
+
+  /** Result of {@link #generateSimple} — the simple report + written paths. */
+  public record SimpleResult(String jobId,
+                             SimpleReportDTO simpleReport,
+                             Path simplePath,
+                             Path legacyPath) {}
+
+  /**
+   * Result of {@link #buildDetailed} — the report body and, when the caller
+   * asked to persist, the file path on disk.
+   */
+  public record DetailedResult(DetailedReportDTO detailedReport, Path detailedPath) {}
 
   /**
    * Convert MSYS / Git Bash style mount paths like "/c/foo/bar" to Windows "C:/foo/bar".
