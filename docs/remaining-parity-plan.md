@@ -70,63 +70,101 @@ includes. The untagged bucket contains untyped `/Artifact` scopes, non-MCID
 BDCs, and bare content — no aggregate-count signal distinguishes the ones
 PAC counts from the ones it drops.
 
-1. **Untagged-subset criterion (high, blocked on data).** PAC includes a
-   specific subset of untagged text. Candidates: only untyped `/Artifact`
-   scopes with specific sub-attributes; only untagged text with a minimum
-   visible extent; only untagged text over non-white backgrounds.
-   **Fix requires PAC's per-event "PDF report" export** — see cross-cutting
-   note at the bottom. Guessing without ground truth risks dropping the 38
-   errors PAC does classify.
-2. **Bbox-union background misclassification (secondary).** Even after
-   fixing the subset criterion, some errors will still misclassify because
-   per-Tj bbox unions catch darker paints per-glyph bboxes wouldn't. Fix:
-   per-glyph background sampling within a Tj batch — but only worth doing
-   after (1) lands, since count mismatches dwarf classification mismatches.
-3. **Image-pixel misclassification at bbox centre (medium, Complex-only).**
-   For text over photos with local colour variance, the single centre-pixel
-   sample under-approximates contrast worst-case. Complex's 9-event delta
-   is well within this noise band.
+### Screenshot analysis 2026-07-18 — the two error sets are largely disjoint
 
-### Implementation plan
+Customer supplied axesPDF-PAC screenshots of one failing "Text with
+insufficient contrast" row on OP_AoD page 3:
 
-**Step 1 — Verify hypothesis 1 with a Tj-operator count probe.**
-- Write a probe that registers custom content operators for `Tj`, `TJ`, `'` and
-  `"` and counts one per invocation.
-- Compare per-page counts vs iText's `RENDER_TEXT` counts and against PAC's
-  per-page tally (from screenshots) if we have per-page breakdowns.
-- If Tj-count matches PAC exactly, hypothesis confirmed.
+- The failing text is **"Tag Category"**, the visible white heading of the
+  "Document Coverage Summary" table.
+- PDF-XChange Editor confirms the text sits inside a `<TH>` struct element
+  (**tagged content**), on a dark-blue table-header rectangle.
 
-**Step 2 — Fold per-glyph events into per-Tj events at the source.**
-- Register `Tj`, `TJ` custom operators in `ContrastListener`. Extract the fill
-  colour and font at operator time (from `CanvasGraphicsState`).
-- Track a "pending Tj" state: on `Tj`/`TJ` open, mark start; suppress
-  `RENDER_TEXT` findings during this Tj; on operator complete, emit ONE
-  finding with the union of glyph bboxes.
-- Risk: iText's built-in operator handlers process the string and update text
-  position; a custom override that also emits findings must invoke the parent
-  handler before/after to preserve state consistency. Use `PdfCanvasProcessor#registerContentOperator`
-  with a wrapper delegate pattern (call the previous handler via
-  `IContentOperator#invoke`).
-- Expected result: Filled 3619 → ~3000 events; error count similarly reduces
-  and pass count aligns with PAC 2593.
+That single data point contradicts the untagged-subset story:
 
-**Step 3 — Multi-pixel image sampling with local worst-case.**
-- For image paints, sample a small horizontal strip (e.g. 5 points along text
-  bbox centre y) and take the pixel with the worst contrast vs the text fill.
-- Use a small tolerance so tiny image-pixel drift doesn't flip pass/fail.
-- Risk: overshoots on decorative graphics with intentional local contrast
-  gradients (e.g. Complex slides with photo gradients). We tried this on 2026-07-10
-  and reverted because 3×3 grid worst-case fired too many false errors — need
-  the sampling area confined to the actual glyph strokes, not the full bbox.
-- Expected result: Complex delta shrinks toward P±3, E±3.
+- PAC classifies this **tagged** row as failing.
+- Our diagnostic showed **all 979 tagged emissions pass** and **all 136 of
+  our errors are on untagged emissions**.
+- Therefore **PAC's 38 errors and our 136 errors are largely non-overlapping
+  populations**: PAC flags tagged text we classify as passing (or don't see
+  at this location); we flag untagged text PAC classifies as passing.
 
-**Step 4 — Discovery pass for CalSAWS's 348 phantom exclusions.**
-- Instrument our rule to emit each finding with the raw `TextRenderInfo` context
-  (fill colour, font BaseFont, MCID, artifact scope, page).
-- Cross-reference against PAC's per-event PDF report (export from PAC's "PDF
-  report" button) to identify which 348 CalSAWS events PAC drops.
-- Look for a shared structural property (artifact `/Subtype`? specific font
-  name? BDC parent tag?) and add it as an exclusion.
+Attempted fix 2026-07-18: Tr=3 (invisible-anchor text) inclusion hypothesis.
+Removed the `renderMode == 3` early-return in `emitFinding` on the theory
+that PAC processes render-mode-3 tagging anchors for contrast while we
+skip them. **No change to the counts (still 136E/2063P)** — either the doc
+has no Tr=3 events or they're already dropped by another filter (widget
+`/Rect`, pure-white-on-white). Reverted.
+
+### Revised diagnosis
+
+Full count parity would require reproducing at least two PAC-specific
+quirks simultaneously:
+
+1. **PAC's local-background detection misses the covering rectangle for
+   tagged headings** and compares white heading text against page-white
+   → 1:1 → fails. On the "Tag Category" case: WCAG contrast of pure-white
+   on typical dark blue (~#003366) is ~13:1, well over 4.5:1 — the fact
+   that PAC flags it as failing implies its background reader is broken
+   for this pattern.
+2. **PAC's untagged filter drops ~953 of our 1220 untagged emissions**
+   (still unknown criterion; still blocked on PAC's per-event export).
+
+Both changes are regressions from a spec-correct implementation: (1)
+introduces a false negative on the background detection to match PAC's
+false negative; (2) drops untagged text that WCAG 1.4.3 technically applies
+to (only artifacts are formally exempt).
+
+### Residual hypotheses (deprioritised)
+
+1. **Untagged-subset criterion (high, blocked on data).** Still unresolved.
+   Would require PAC's per-event export to reverse-engineer. Customer
+   provided screenshots of the failing side only; the passing side isn't
+   itemised in PAC's UI.
+2. **Bbox-union background misclassification (medium).** Per-Tj bbox unions
+   catch darker paints per-glyph bboxes wouldn't. Would move some of our
+   136 errors → passes, but wouldn't reduce the total count. Not a fix for
+   the +855 pass over-count.
+3. **Local-background detection difference (new, medium confidence).**
+   PAC misses the covering dark rectangle for table headings on tagged
+   content; we detect it correctly. Explains why the two error sets differ.
+   Reproducing PAC's behavior would require intentionally regressing our
+   background lookup — not recommended.
+4. **Image-pixel misclassification at bbox centre (low, Complex-only).**
+   Single centre-pixel sample under-approximates worst-case for text over
+   photos. Complex's 9-event delta is within noise.
+
+### Recommendation
+
+**Accept the current state.** Our rule is more WCAG-spec-correct than PAC's
+on this row. The 77% event-count reduction from per-Tj batching (9382 →
+2199) is already the biggest structural improvement possible without
+reverse-engineering PAC's per-event export. Further parity work is
+gated on:
+
+- Getting PAC's per-event "PDF report" export (the passing-side data),
+  **or** a written spec of PAC's contrast algorithm from axes4;
+- Deciding whether the customer prefers bit-for-bit PAC parity (which
+  requires shipping their false-negative background reader) or WCAG-spec
+  correctness (which is what we do today).
+
+### Implementation plan (historical — Step 1 & 2 landed 2026-07-17)
+
+**Step 1 — Verify hypothesis with a Tj-operator count probe.** ✅ Done.
+Instrumented ValidateContrastOfText via a custom `IContentOperator` wrapper
+around Tj/TJ/'/". Confirmed iText fires per-glyph, PAC fires per-Tj.
+
+**Step 2 — Fold per-glyph events into per-Tj events at the source.** ✅ Done.
+See commit `fix(contrast): batch RENDER_TEXT events per Tj/TJ operator`.
+Result: 9382 → 2199 events on OP_AoD (~77% reduction).
+
+**Step 3 — Multi-pixel image sampling with local worst-case.** Deferred.
+Tried 2026-07-10 with 3×3 grid worst-case; fired too many false errors and
+was reverted. Only useful for Complex_Presentation_Sample's 9-event delta.
+
+**Step 4 — Per-event ground truth discovery.** Blocked. Requires PAC's "PDF
+report" export or a written spec of PAC's algorithm from axes4. Customer
+supplied UI screenshots only, which itemise failures but not passes.
 
 ---
 
