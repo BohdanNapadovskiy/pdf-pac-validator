@@ -64,6 +64,49 @@ public class ValidateStructuralParentTree implements Rule {
                     "Inconsistent entry found"));
         }
 
+        // Per-page: scan the /StructParents array for null entries. A PdfNull at
+        // index k means the MCID k on this page has no owning struct element —
+        // orphaned tagged content that PAC surfaces as one InconsistentEntry
+        // error per null. The bbox comes from the MCID's paint rect if available.
+        for (int i = 1; i <= pdf.getNumberOfPages(); i++) {
+            PdfDictionary page = pdf.getPage(i).getPdfObject();
+            PdfNumber sp = page.getAsNumber(new PdfName("StructParents"));
+            if (sp == null) continue;
+            PdfObject entry = nums.get(sp.intValue());
+            if (!(entry instanceof PdfArray arr)) continue;
+            com.netralabs.report.BBoxDTO[] mcidBboxes = null; // lazy per-page
+            for (int mcid = 0; mcid < arr.size(); mcid++) {
+                PdfObject o = arr.get(mcid);
+                if (o == null || !o.isNull()) continue;
+                if (mcidBboxes == null) {
+                    java.util.Map<Integer, com.netralabs.report.BBoxDTO> m =
+                            com.netralabs.basic.content.PageMcidBboxes.forPage(pdf, i);
+                    mcidBboxes = new com.netralabs.report.BBoxDTO[arr.size()];
+                    for (var e : m.entrySet()) {
+                        if (e.getKey() >= 0 && e.getKey() < mcidBboxes.length) {
+                            mcidBboxes[e.getKey()] = e.getValue();
+                        }
+                    }
+                }
+                com.netralabs.report.BBoxDTO bbox = mcidBboxes[mcid];
+                if (bbox == null) {
+                    // Fallback: use the page's CropBox as a coarse bbox so the
+                    // detailed report still has a rectangle. Orphaned MCIDs
+                    // often correspond to artifact-scoped paints we don't
+                    // capture in PageMcidBboxes (which only records tagged
+                    // scopes).
+                    com.itextpdf.kernel.geom.Rectangle cb = pdf.getPage(i).getCropBox();
+                    if (cb != null) {
+                        bbox = new com.netralabs.report.BBoxDTO(
+                                cb.getTop(), cb.getLeft(),
+                                cb.getHeight(), cb.getWidth());
+                    }
+                }
+                out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, i, bbox,
+                        "Inconsistent entry found"));
+            }
+        }
+
         return out;
     }
 
@@ -184,30 +227,22 @@ public class ValidateStructuralParentTree implements Rule {
             return;
         }
 
-        // Look for either this StructElem or an MCR with same MCID
+        // The ParentTree entry for a page is an array indexed by MCID: element k
+        // is the struct element that owns MCID k on that page. Verify that
+        // arr[mcid] references our SE — a mismatch means the ParentTree entry
+        // for this MCID points to a different SE (or is null), which PAC flags
+        // as an "inconsistent entry".
         boolean found = false;
+        int idx = mcid.intValue();
         PdfIndirectReference seRef = se.getIndirectReference();
-        for (int i = 0; i < arr.size(); i++) {
-            PdfObject o = arr.get(i);
-            if (o == null) continue;
-
-            if (o.isDictionary()) {
-                PdfDictionary od = (PdfDictionary) o;
-                PdfNumber omcid = od.getAsNumber(new PdfName("MCID"));
-                if (omcid != null && omcid.intValue() == mcid.intValue()) {
-                    found = true;
-                    break;
-                }
-                PdfIndirectReference pRef = od.getIndirectReference();
-                if (pRef != null && seRef != null && pRef.getObjNumber() == seRef.getObjNumber()) {
-                    found = true;
-                    break;
-                }
-            } else if (o.isIndirectReference() && seRef != null) {
-                PdfIndirectReference r = (PdfIndirectReference) o;
-                if (r.getObjNumber() == seRef.getObjNumber()) {
-                    found = true;
-                    break;
+        if (idx >= 0 && idx < arr.size()) {
+            PdfObject o = arr.get(idx);
+            if (o != null && seRef != null) {
+                if (o.isIndirectReference()) {
+                    found = ((PdfIndirectReference) o).getObjNumber() == seRef.getObjNumber();
+                } else if (o.isDictionary()) {
+                    PdfIndirectReference r = ((PdfDictionary) o).getIndirectReference();
+                    found = r != null && r.getObjNumber() == seRef.getObjNumber();
                 }
             }
         }
