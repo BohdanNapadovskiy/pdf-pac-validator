@@ -714,8 +714,8 @@ public enum PDFUACheckpoint {
             "Alternative Descriptions",
             "Alternative description for annotations",
             "",
-            null,
-            null
+            com.netralabs.logicalstructure.structureelements.annotations.ValidateAnnotationAltText::new,
+            Phase.DOCUMENT
     ),
 
     //Metadata Part

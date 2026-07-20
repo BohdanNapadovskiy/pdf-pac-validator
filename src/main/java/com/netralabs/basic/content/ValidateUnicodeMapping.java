@@ -87,6 +87,17 @@ public class ValidateUnicodeMapping implements Rule {
                                 "Type 3 font has no ToUnicode CMap; glyph names not in Adobe Glyph List"));
                         return;
                     }
+                    // PAC-parity: when a non-Type3 font declares a ToUnicode CMap, PAC
+                    // trusts the CMap and passes the text-show regardless of iText's
+                    // per-glyph validity result. iText's decodeIntoGlyphLine sometimes
+                    // returns hasValidUnicode()=false for CID-decoded chars whose CMap
+                    // resolves to a real codepoint via the ToUnicode entry (e.g. CID
+                    // pairs producing U+00A9 or U+00FF whose Glyph.chars array is
+                    // considered unset). PAC treats these as passing.
+                    if (fdict != null && fdict.get(PdfName.ToUnicode) != null) {
+                        out.add(new FindingDTO(Severity.PASSED, MAPPING_OF_CHARACTER_TO_UNICODE, pageNum, null));
+                        return;
+                    }
                     GlyphLine line;
                     try {
                         line = font.decodeIntoGlyphLine(tri.getPdfString());

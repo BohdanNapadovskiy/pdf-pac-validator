@@ -3,6 +3,7 @@ import com.netralabs.api.service.ValidationService.DetailedResult;
 import com.netralabs.api.service.ValidationService.SimpleResult;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -45,7 +46,14 @@ public class PDFValidator {
     String outputFolder = null;
     if (explicitOutput != null) {
       Path p = Paths.get(explicitOutput);
-      outputFolder = p.getParent() != null ? p.getParent().toString() : ".";
+      // Accept -o as either an existing folder or a file path. When it's a
+      // folder we use it directly; otherwise fall back to its parent so a
+      // path like "out/report.json" resolves to "out/".
+      if (Files.isDirectory(p)) {
+        outputFolder = p.toString();
+      } else {
+        outputFolder = p.getParent() != null ? p.getParent().toString() : ".";
+      }
     }
 
     log.info("Starting PDF validation for: {}", path);

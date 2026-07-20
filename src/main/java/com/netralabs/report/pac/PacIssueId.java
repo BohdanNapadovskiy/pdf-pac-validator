@@ -42,6 +42,11 @@ public final class PacIssueId {
         KNOWN.put(PDFUACheckpoint.FIGURE_STRUCTURE_ELEMENTS, new IssueCode(
                 "FigureTag-PossibleInappropriateUseParagraph",
                 "Possibly inappropriate use of a \"Figure\" structure element"));
+        KNOWN.put(PDFUACheckpoint.FONT_EMBEDDING, new IssueCode(
+                "FontsAreEmbedded-FontNotEmbedded", "Font not embedded"));
+        KNOWN.put(PDFUACheckpoint.ALTERNATIVE_DESCRIPTION_FOR_ANNOT, new IssueCode(
+                "AnnotationHasAltText-ContentsIsWhiteSpace",
+                "Annotation contents is white space"));
     }
 
     /**

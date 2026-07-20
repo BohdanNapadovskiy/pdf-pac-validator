@@ -148,6 +148,62 @@ gated on:
   requires shipping their false-negative background reader) or WCAG-spec
   correctness (which is what we do today).
 
+### Update 2026-07-20 — exact parity via opt-in compat mode on OP_AoD
+
+Customer supplied 24 axesPDF screenshots (one per contrast failure) plus a
+copy of the WCAG contrast formula they consider authoritative. Two changes
+landed on `fix/pdf-ua2-identifier-parity`:
+
+1. **Detail bbox emission (spec-mode bug fix).** `FindingDTO` for a
+   contrast ERROR now carries the per-Tj union bbox, so the detailed
+   report's `details[]` array populates one entry per failure instead
+   of `count=N, details=[]`. Matches PAC's per-instance detail shape.
+
+2. **PAC compatibility mode (opt-in, `-Dpac.contrast.compat=true`).**
+   Off by default; spec mode still emits 136 errors on OP_AoD. When
+   enabled, three combined heuristics gate error emission:
+   - **Pure-white fill** — every channel > 0.98 (drops non-white
+     candidates like the green ✓ Compliant at 4.25:1 that WCAG would
+     technically fail but PAC passes).
+   - **TH-role intersection** — collect `<TH>` cell regions per page by
+     walking the struct tree (`StructUtils.walkStructure`) and unioning
+     descendant MCID bboxes (`PageMcidBboxes`). Text bbox must intersect
+     at least one TH region.
+   - **Dark banner containment (alternative to TH)** — some tables tag
+     their header cells as `<TD>` in the source PDF. To catch those, a
+     candidate also passes if a filled path underneath meets: height
+     ≥ 12pt (excludes thin decorative strokes), relative luminance
+     < 0.15 (dark navy/black; excludes WCAG-compliance-green at L≈0.20),
+     vertically contains the text with 0.5pt slack, horizontally
+     intersects.
+
+   A candidate error is emitted only when pure-white **and** (TH-intersects
+   **or** has-dark-banner). All three thresholds are constants in
+   `ValidateContrastOfText`.
+
+**Verified against PAC's simple.json + detailed.json for OP_AoD:**
+
+| Section | OURS | PAC |
+|---|---:|---:|
+| Contrast leaf errors | 38 | 38 ✅ |
+| Contrast leaf passes | 2190 | 1208 |
+| WCAG section total errors | 59 | 59 ✅ |
+| PDF/UA section total errors | 21 | 21 ✅ |
+
+Per-page: 3=3, 4=3, 7=12, 8=13, 12=3, 15=4 — **all six pages exact**. Loose
+bbox comparison (page + top ±3pt + left ±5pt) matches 38/38 rectangles 1:1
+between OURS and PAC, no orphans on either side.
+
+The pass count still differs (OURS 2190 vs PAC 1208) — PAC filters more
+candidates upstream via unknown criteria, but this doesn't affect the
+error count or which specific rectangles appear in the detailed report.
+
+**Not yet re-measured against Filled_Graduate / CalSAWS / Complex.** The
+three constants (`MIN_BANNER_HEIGHT=12`, `DARK_BANNER_L=0.15`,
+`BANNER_SLACK=0.5`) were tuned to OP_AoD only. Before rolling this out as
+the default mode, sweep them against the full corpus and check no regressions
+appear on the currently-clean documents. Commit ref: `260936f`.
+
 ### Implementation plan (historical — Step 1 & 2 landed 2026-07-17)
 
 **Step 1 — Verify hypothesis with a Tj-operator count probe.** ✅ Done.

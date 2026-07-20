@@ -2,10 +2,15 @@ package com.netralabs.basic.fonts;
 
 import com.itextpdf.kernel.pdf.PdfDictionary;
 import com.itextpdf.kernel.pdf.PdfDocument;
+import com.itextpdf.kernel.pdf.PdfIndirectReference;
 import com.itextpdf.kernel.pdf.PdfName;
+import com.itextpdf.kernel.pdf.canvas.parser.data.TextRenderInfo;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
+import com.netralabs.basic.content.ContentWalker;
+import com.netralabs.basic.content.Hook;
 import com.netralabs.domain.Severity;
+import com.netralabs.report.BBoxDTO;
 import com.netralabs.report.FindingDTO;
 import lombok.extern.slf4j.Slf4j;
 
@@ -56,10 +61,38 @@ public class ValidateFontsEmbedding implements Rule {
                 out.add(new FindingDTO(Severity.PASSED, FONT_EMBEDDING, page, null));
             } else {
                 log.error("Font {} not embedded (first seen on page {})", fname.getValue(), page);
-                out.add(new FindingDTO(Severity.ERROR, FONT_EMBEDDING, page, null, "Font not embedded"));
+                BBoxDTO bbox = firstGlyphBbox(pdf, page, font);
+                out.add(new FindingDTO(Severity.ERROR, FONT_EMBEDDING, page, bbox, "Font not embedded"));
             }
         });
         return out;
+    }
+
+    /**
+     * Walk the given page's content stream and return the bbox of the first glyph
+     * painted with the target font. Used to attribute a "Font not embedded"
+     * finding to a concrete on-page location so PAC's detailed report can render
+     * a highlight. Returns {@code null} if the font isn't actually used in the
+     * page's content stream (defensive; declared-but-unused fonts are rare but
+     * possible via inherited resources).
+     */
+    private static BBoxDTO firstGlyphBbox(PdfDocument pdf, int pageNum, PdfDictionary targetFont) {
+        PdfIndirectReference target = targetFont.getIndirectReference();
+        BBoxDTO[] result = new BBoxDTO[1];
+        ContentWalker.walkPage(pdf, pageNum, new Hook() {
+            @Override
+            public void onShowText(TextRenderInfo tri, BBoxDTO bbox) {
+                if (result[0] != null || tri.getFont() == null) return;
+                PdfDictionary fontDict = tri.getFont().getPdfObject();
+                if (fontDict == null) return;
+                PdfIndirectReference ref = fontDict.getIndirectReference();
+                // Identity or indirect-reference match; direct-object fonts are rare.
+                if ((ref != null && ref.equals(target)) || fontDict == targetFont) {
+                    result[0] = bbox;
+                }
+            }
+        });
+        return result[0];
     }
 
     private static boolean isStandard14(PdfDictionary font) {

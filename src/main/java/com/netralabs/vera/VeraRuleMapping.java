@@ -126,15 +126,17 @@ public final class VeraRuleMapping {
       Map.entry(P + "7.7-1",   PDFUACheckpoint.ALTERNATIVE_TEXT_FOR_FORMULA),
 
       // Annotations
-      Map.entry(P + "7.18.1-1", PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      // 7.18.1-1 / 7.18.4-1 / 7.18.5-1 (annotation-nesting clauses) are handled
+      // natively by ValidateAnnotationNesting, which walks page /Annots and
+      // checks StructParent → ParentTree → ancestor-role for the required
+      // wrapper (Form / Link / Annot). Vera's mapping over-counts on some
+      // documents (e.g. 146 vs PAC's 90 widget errors on a scanned form).
       Map.entry(P + "7.18.1-2", PDFUACheckpoint.ALTERNATIVE_DESCRIPTION_FOR_ANNOT),
       // 7.18.1-3 ("form fields shall have TU or widget alt descriptions") is handled
       // natively by ValidateFormFieldAltNames — vera's pass-2 assertion cap silently
       // dropped tail-end field passes on multi-field forms (15/31 on Filled_Graduate).
       Map.entry(P + "7.18.2-1", PDFUACheckpoint.TRAP_NET_ANNOTATIONS),
-      Map.entry(P + "7.18.4-1", PDFUACheckpoint.NESTING_WIDGET_ANNOTATIONS),
       Map.entry(P + "7.18.4-2", PDFUACheckpoint.FORM_STRUCTURE_ELEMENTS),
-      Map.entry(P + "7.18.5-1", PDFUACheckpoint.NESTING_LINK_ANNOTATIONS),
       // 7.18.5-2 ("Links shall contain an alternate description") is intentionally NOT mapped:
       // veraPDF fires it alongside 7.18.1-2 for every Link annotation missing /Contents, so
       // keeping both double-counts the same defect. PAC reports it once, via the general rule.
@@ -220,21 +222,14 @@ public final class VeraRuleMapping {
       Map.entry("SEWP",                 PDFUACheckpoint.WP_STRUCTURE_ELEMENTS),
       Map.entry("SEWT",                 PDFUACheckpoint.WT_STRUCTURE_ELEMENTS),
       // Annotations
-      Map.entry("PDLinkAnnot",          PDFUACheckpoint.NESTING_LINK_ANNOTATIONS),
-      Map.entry("PDWidgetAnnot",        PDFUACheckpoint.NESTING_WIDGET_ANNOTATIONS),
-      Map.entry("PDAnnot",              PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
+      // PDLinkAnnot / PDWidgetAnnot / PDAnnot (and other markup annotation object
+      // types) intentionally NOT mapped to NESTING_* checkpoints — those are
+      // handled natively by ValidateAnnotationNesting, which walks page /Annots
+      // and does StructParent → ParentTree → ancestor-role lookup. Vera's UA-2
+      // object-routed pass-2 assertions would double-count on top of the native
+      // per-annotation emission.
       Map.entry("PDTrapNetAnnot",       PDFUACheckpoint.TRAP_NET_ANNOTATIONS),
       Map.entry("PDPrinterMarkAnnot",   PDFUACheckpoint.PRINTER_MARK_ANNOTATIONS),
-      Map.entry("PDPopupAnnot",         PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDFileAttachmentAnnot",PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDMarkupAnnot",        PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDWatermarkAnnot",     PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDRubberStampAnnot",   PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDInkAnnot",           PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDScreenAnnot",        PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDMovieAnnot",         PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDSoundAnnot",         PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
-      Map.entry("PDRichMediaAnnot",     PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
       Map.entry("PD3DAnnot",            PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
       Map.entry("PDTextField",          PDFUACheckpoint.ALTERNATIVE_NAMES_FORM_FIELDS),
       // Content / real-content
