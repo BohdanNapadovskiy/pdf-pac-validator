@@ -375,6 +375,10 @@ public class ValidateContrastOfText implements Rule {
                 if (g.bbox[3] > maxY) maxY = g.bbox[3];
             }
             if (probe == null || minX == Double.POSITIVE_INFINITY) return;
+            // Skip degenerate bboxes — zero-area, negative-position, or negligible
+            // size text-shows. iText fires RENDER_TEXT for character-position markers
+            // and empty strings which PAC filters out of the 1.4.3 tally.
+            if (maxX - minX < 0.5 || maxY - minY < 0.5) return;
 
             double[] fillRgb = probe.fillRgb;
             double[] textBox = {minX, minY, maxX, maxY};
@@ -394,16 +398,19 @@ public class ValidateContrastOfText implements Rule {
             double ratio = contrastRatio(fillRgb, bgRgb);
             double threshold = isLargeText(probe) ? THRESHOLD_LARGE : THRESHOLD_REGULAR;
 
-            // PAC compat gate: on OP_AoD PAC surfaces contrast fails for pure-white
-            // text that is EITHER (a) inside a tagged <TH> cell or (b) drawn over
-            // a dark filled-path banner (relative luminance < 0.2). Both signals
-            // together catch first-table headers via structural role AND second-
-            // table headers whose cells are tagged <TD> but visually sit on the
-            // same navy banner. Green status pills (L≈0.4) don't qualify as
-            // "dark", so ✓ PASS markers in data cells continue to pass.
-            if (PAC_COMPAT && ratio < threshold
-                    && (!isPureWhite(fillRgb)
-                        || (!intersectsAnyTh(textBox) && !hasDarkBanner(textBox)))) {
+            // PAC compat gate: flag pure-white text failing contrast when EITHER
+            //  (a) it's inside a tagged <TH> cell,
+            //  (b) it sits on a dark filled-path banner (L < 0.15), or
+            //  (c) the whole page has no paint at all (text drawn on paper).
+            // Non-pure-white text is passed. Pure-white text on a non-dark covering
+            // paint (e.g. a green status pill) is also passed. Text rendered in an
+            // unembedded Standard-14 font (bare "Helvetica", "Times-Roman", etc.)
+            // is excluded — PAC treats these as page-chrome (footers, rotated
+            // watermarks) that don't contribute to the content-contrast tally.
+            boolean chrome = isPureWhite(fillRgb) && isStandard14Base(probe.fontName);
+            boolean keepAsError = isPureWhite(fillRgb) && !chrome
+                    && (intersectsAnyTh(textBox) || hasDarkBanner(textBox) || paintLog.isEmpty());
+            if (PAC_COMPAT && ratio < threshold && !keepAsError) {
                 out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, null));
                 return;
             }
@@ -455,6 +462,7 @@ public class ValidateContrastOfText implements Rule {
             }
             return false;
         }
+
 
         /** True iff the text bbox intersects any Widget annotation's /Rect. Any
          *  overlap counts — form-field labels sometimes extend slightly outside the
@@ -717,6 +725,25 @@ public class ValidateContrastOfText implements Rule {
      *  and near-white image samples uniformly as pure white. */
     private static boolean isPureWhite(double[] rgb) {
         return rgb[0] > 0.98 && rgb[1] > 0.98 && rgb[2] > 0.98;
+    }
+
+    /** True iff {@code fontName} is one of the 14 Standard Latin Type-1 fonts drawn
+     *  without a subset prefix — the base "Helvetica", "Times-Roman", "Courier",
+     *  "Symbol", "ZapfDingbats" faces used by viewers when the doc doesn't embed a
+     *  face. PAC excludes text rendered in these from the 1.4.3 contrast tally
+     *  (they're typically page chrome — footers, rotated watermarks). */
+    private static boolean isStandard14Base(String fontName) {
+        if (fontName == null || fontName.isEmpty()) return false;
+        // Skip subset-prefixed names ("ABCDEF+Helvetica"): those are proper subsets,
+        // not the bare base 14.
+        if (fontName.length() > 6 && fontName.charAt(6) == '+') return false;
+        return switch (fontName) {
+            case "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+                 "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+                 "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+                 "Symbol", "ZapfDingbats" -> true;
+            default -> false;
+        };
     }
 
     /** WCAG contrast ratio (L1 + 0.05) / (L2 + 0.05), L1 the lighter of the two. */
