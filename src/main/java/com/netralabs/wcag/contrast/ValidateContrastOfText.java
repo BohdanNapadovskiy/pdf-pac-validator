@@ -258,7 +258,8 @@ public class ValidateContrastOfText implements Rule {
 
         /** Immutable snapshot of the fields we need from a {@link TextRenderInfo}. */
         private record GlyphEvent(double[] fillRgb, double[] bbox, int renderMode,
-                                  float fontSize, String fontName, boolean typedArtifact) {}
+                                  float fontSize, String fontName, boolean typedArtifact,
+                                  boolean anyArtifact) {}
 
         ContrastListener(int pageNum, List<FindingDTO> out, List<double[]> widgetRects,
                          List<double[]> thBboxes) {
@@ -308,7 +309,7 @@ public class ValidateContrastOfText implements Rule {
             }
             return new GlyphEvent(
                     fillRgb, bbox, tri.getTextRenderMode(),
-                    tri.getFontSize(), fontName, isTypedArtifact(tri));
+                    tri.getFontSize(), fontName, isTypedArtifact(tri), isAnyArtifact(tri));
         }
 
         /** Called by the operator wrapper before iText's default handler processes
@@ -401,15 +402,20 @@ public class ValidateContrastOfText implements Rule {
             // PAC compat gate: flag pure-white text failing contrast when EITHER
             //  (a) it's inside a tagged <TH> cell,
             //  (b) it sits on a dark filled-path banner (L < 0.15), or
-            //  (c) the whole page has no paint at all (text drawn on paper).
+            //  (c) the whole page has no paint at all AND the text is inside a
+            //      real struct tag (Span/P/etc.), not just an /Artifact scope.
             // Non-pure-white text is passed. Pure-white text on a non-dark covering
             // paint (e.g. a green status pill) is also passed. Text rendered in an
             // unembedded Standard-14 font (bare "Helvetica", "Times-Roman", etc.)
             // is excluded — PAC treats these as page-chrome (footers, rotated
             // watermarks) that don't contribute to the content-contrast tally.
+            // Artifact-scoped text on an empty-paint-log page is also excluded:
+            // PAC treats decorative artifact headings (e.g. "GENERAL INSTRUCTIONS"
+            // in a form) as non-content even when their fill is pure white.
             boolean chrome = isPureWhite(fillRgb) && isStandard14Base(probe.fontName);
+            boolean emptyLog = paintLog.isEmpty() && !probe.anyArtifact;
             boolean keepAsError = isPureWhite(fillRgb) && !chrome
-                    && (intersectsAnyTh(textBox) || hasDarkBanner(textBox) || paintLog.isEmpty());
+                    && (intersectsAnyTh(textBox) || hasDarkBanner(textBox) || emptyLog);
             if (PAC_COMPAT && ratio < threshold && !keepAsError) {
                 out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, null));
                 return;
@@ -672,6 +678,18 @@ public class ValidateContrastOfText implements Rule {
         if (role == null || !"Artifact".equals(role.getValue())) return false;
         return innermost.getProperties() != null
                 && innermost.getProperties().get(PdfName.Type) != null;
+    }
+
+    /** True iff the innermost marked-content tag is any {@code /Artifact} BDC
+     *  (typed or untyped). Used only under PAC compat mode: on empty-paint-log
+     *  pages, PAC skips artifact-scoped text (decorative content) and only
+     *  flags struct-tagged content — e.g. text inside {@code <Span>}, {@code <P>}. */
+    private static boolean isAnyArtifact(TextRenderInfo tri) {
+        List<CanvasTag> h = tri.getCanvasTagHierarchy();
+        if (h == null || h.isEmpty()) return false;
+        CanvasTag innermost = h.get(h.size() - 1);
+        PdfName role = innermost.getRole();
+        return role != null && "Artifact".equals(role.getValue());
     }
 
     /**
