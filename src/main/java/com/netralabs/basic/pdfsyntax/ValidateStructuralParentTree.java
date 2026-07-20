@@ -54,81 +54,168 @@ public class ValidateStructuralParentTree implements Rule {
             }
         });
 
-        // Also check annotation /StructParent keys resolve into /ParentTree /Nums.
-        // PAC rolls this up to a single aggregate finding per document, so emit at most
-        // one error even when multiple annotations are unresolved. The page + rect
-        // come from the first offender so the detailed report can highlight it.
-        UnresolvedAnnot ua = firstUnresolvedAnnotStructParent(pdf, nums);
-        if (ua != null) {
-            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, ua.page, ua.bbox,
-                    "Inconsistent entry found"));
-        }
-
-        // Per-page: scan the /StructParents array for null entries. A PdfNull at
-        // index k means the MCID k on this page has no owning struct element —
-        // orphaned tagged content that PAC surfaces as one InconsistentEntry
-        // error per null. The bbox comes from the MCID's paint rect if available.
-        for (int i = 1; i <= pdf.getNumberOfPages(); i++) {
-            PdfDictionary page = pdf.getPage(i).getPdfObject();
-            PdfNumber sp = page.getAsNumber(new PdfName("StructParents"));
-            if (sp == null) continue;
-            PdfObject entry = nums.get(sp.intValue());
-            if (!(entry instanceof PdfArray arr)) continue;
-            com.netralabs.report.BBoxDTO[] mcidBboxes = null; // lazy per-page
-            for (int mcid = 0; mcid < arr.size(); mcid++) {
-                PdfObject o = arr.get(mcid);
-                if (o == null || !o.isNull()) continue;
-                if (mcidBboxes == null) {
-                    java.util.Map<Integer, com.netralabs.report.BBoxDTO> m =
-                            com.netralabs.basic.content.PageMcidBboxes.forPage(pdf, i);
-                    mcidBboxes = new com.netralabs.report.BBoxDTO[arr.size()];
-                    for (var e : m.entrySet()) {
-                        if (e.getKey() >= 0 && e.getKey() < mcidBboxes.length) {
-                            mcidBboxes[e.getKey()] = e.getValue();
-                        }
-                    }
-                }
-                com.netralabs.report.BBoxDTO bbox = mcidBboxes[mcid];
-                if (bbox == null) {
-                    // Fallback: use the page's CropBox as a coarse bbox so the
-                    // detailed report still has a rectangle. Orphaned MCIDs
-                    // often correspond to artifact-scoped paints we don't
-                    // capture in PageMcidBboxes (which only records tagged
-                    // scopes).
-                    com.itextpdf.kernel.geom.Rectangle cb = pdf.getPage(i).getCropBox();
-                    if (cb != null) {
-                        bbox = new com.netralabs.report.BBoxDTO(
-                                cb.getTop(), cb.getLeft(),
-                                cb.getHeight(), cb.getWidth());
-                    }
-                }
-                out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, i, bbox,
-                        "Inconsistent entry found"));
-            }
-        }
+        // Per-Link consistency: for each <Link> struct element with an OBJR child,
+        // verify the referenced annotation's /StructParent → /Nums entry points
+        // back to this same struct element. When an author wraps overlapping URL
+        // text in multiple <Link> elements but all Link annotations share the same
+        // /Rect and only one /StructParent, only one Link struct is the annotation's
+        // back-reference target — the others are "inconsistent". PAC surfaces one
+        // error per such Link struct with a bbox that unions the Link's MCID paint
+        // bboxes with the referenced annotation's /Rect.
+        //
+        // This replaces the previous document-wide "first unresolved annotation
+        // /StructParent" aggregate finding — the per-Link check subsumes that case
+        // (a Link annotation whose /StructParent is missing from /Nums has no valid
+        // back-reference target, so the Link struct fails the check here too), and
+        // matches PAC's exact per-instance emission on OP_AoD and 2026-07663_AOD.
+        emitBrokenLinkBackReferences(pdf, nums, out);
 
         return out;
     }
 
-    private record UnresolvedAnnot(int page, BBoxDTO bbox) {}
+    private static void emitBrokenLinkBackReferences(PdfDocument pdf,
+                                                     Map<Integer, PdfObject> nums,
+                                                     List<FindingDTO> out) {
+        Map<Integer, Map<Integer, BBoxDTO>> mcidByPage = new HashMap<>();
+        walkStructure(pdf, (parent, se) -> {
+            PdfName role = se.getAsName(PdfName.S);
+            if (role == null || !"Link".equals(role.getValue())) return;
+            PdfDictionary annot = firstObjrAnnot(se.get(PdfName.K));
+            if (annot == null) return;
+            PdfNumber sp = annot.getAsNumber(new PdfName("StructParent"));
+            if (sp == null) return;
+            PdfObject entry = nums.get(sp.intValue());
+            if (entry == null) return;
+            PdfIndirectReference target = null;
+            if (entry.isIndirectReference()) target = (PdfIndirectReference) entry;
+            else if (entry.isDictionary()) target = ((PdfDictionary) entry).getIndirectReference();
+            PdfIndirectReference seRef = se.getIndirectReference();
+            if (target == null || seRef == null) return;
+            if (target.getObjNumber() == seRef.getObjNumber()) return; // consistent
 
-    private static UnresolvedAnnot firstUnresolvedAnnotStructParent(PdfDocument pdf, Map<Integer, PdfObject> nums) {
-        int pages = pdf.getNumberOfPages();
-        for (int i = 1; i <= pages; i++) {
-            PdfDictionary page = pdf.getPage(i).getPdfObject();
-            PdfArray annots = page.getAsArray(PdfName.Annots);
-            if (annots == null) continue;
-            for (int j = 0; j < annots.size(); j++) {
-                PdfDictionary annot = annots.getAsDictionary(j);
-                if (annot == null) continue;
-                PdfNumber sp = annot.getAsNumber(new PdfName("StructParent"));
-                if (sp == null) continue;
-                if (!nums.containsKey(sp.intValue())) {
-                    return new UnresolvedAnnot(i, rectToBBox(annot.getAsArray(PdfName.Rect)));
-                }
+            int page = StructUtils.pageNumOf(pdf, se);
+            BBoxDTO bbox = brokenLinkBbox(pdf, page, se, annot, mcidByPage);
+            out.add(new FindingDTO(Severity.ERROR, STRUCTURE_PARENT_TREE, page, bbox,
+                    "Inconsistent entry found"));
+        });
+    }
+
+    /** Find the first {@code OBJR} child of a Link struct element and return its
+     *  referenced annotation dictionary, or null. */
+    private static PdfDictionary firstObjrAnnot(PdfObject k) {
+        if (k == null) return null;
+        if (k.isDictionary()) {
+            PdfDictionary d = (PdfDictionary) k;
+            if (new PdfName("OBJR").equals(d.getAsName(PdfName.Type))) {
+                PdfObject obj = d.get(new PdfName("Obj"));
+                if (obj instanceof PdfDictionary ad) return ad;
+            }
+            return null;
+        }
+        if (k.isArray()) {
+            PdfArray a = (PdfArray) k;
+            for (int i = 0; i < a.size(); i++) {
+                PdfDictionary d = firstObjrAnnot(a.get(i));
+                if (d != null) return d;
             }
         }
         return null;
+    }
+
+    /** Union of the Link struct element's MCID paint bboxes on {@code page} with
+     *  the referenced annotation's {@code /Rect}. Matches PAC's detail bbox for
+     *  broken-back-reference Link findings. */
+    private static BBoxDTO brokenLinkBbox(PdfDocument pdf, int page, PdfDictionary se,
+                                          PdfDictionary annot,
+                                          Map<Integer, Map<Integer, BBoxDTO>> mcidCache) {
+        double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+
+        if (page > 0) {
+            Map<Integer, BBoxDTO> mcids = mcidCache.get(page);
+            if (mcids == null) {
+                mcids = com.netralabs.basic.content.PageMcidBboxes.forPage(pdf, page);
+                mcidCache.put(page, mcids);
+            }
+            List<Integer> ids = new ArrayList<>();
+            collectMcidsOnPage(pdf, se, page, se.getAsDictionary(PdfName.Pg), ids);
+            for (int id : ids) {
+                BBoxDTO b = mcids.get(id);
+                if (b == null) continue;
+                double top = b.getTop(), left = b.getLeft();
+                double bot = top - b.getHeight();
+                double right = left + b.getWidth();
+                if (left < minX) minX = left;
+                if (bot < minY) minY = bot;
+                if (right > maxX) maxX = right;
+                if (top > maxY) maxY = top;
+            }
+        }
+
+        PdfArray rect = annot.getAsArray(PdfName.Rect);
+        if (rect != null && rect.size() >= 4) {
+            try {
+                double x1 = rect.getAsNumber(0).doubleValue();
+                double y1 = rect.getAsNumber(1).doubleValue();
+                double x2 = rect.getAsNumber(2).doubleValue();
+                double y2 = rect.getAsNumber(3).doubleValue();
+                double l = Math.min(x1, x2), r = Math.max(x1, x2);
+                double b = Math.min(y1, y2), t = Math.max(y1, y2);
+                if (l < minX) minX = l;
+                if (b < minY) minY = b;
+                if (r > maxX) maxX = r;
+                if (t > maxY) maxY = t;
+            } catch (Exception ignored) {}
+        }
+
+        if (minX == Double.POSITIVE_INFINITY) return null;
+        float top = (float) maxY;
+        float left = (float) minX;
+        float height = (float) (maxY - minY);
+        float width = (float) (maxX - minX);
+        return new BBoxDTO(top, left, height, width);
+    }
+
+    private static void collectMcidsOnPage(PdfDocument pdf, PdfDictionary se, int page,
+                                           PdfDictionary inheritedPg, List<Integer> out) {
+        PdfDictionary myPg = se.getAsDictionary(PdfName.Pg);
+        PdfDictionary effectivePg = myPg != null ? myPg : inheritedPg;
+        collectMcidsFromK(pdf, se.get(PdfName.K), page, effectivePg, out);
+    }
+
+    private static void collectMcidsFromK(PdfDocument pdf, PdfObject k, int page,
+                                          PdfDictionary inheritedPg, List<Integer> out) {
+        if (k == null) return;
+        if (k.isNumber()) {
+            if (pageMatches(pdf, inheritedPg, page)) {
+                out.add(((PdfNumber) k).intValue());
+            }
+        } else if (k.isDictionary()) {
+            PdfDictionary d = (PdfDictionary) k;
+            PdfName type = d.getAsName(PdfName.Type);
+            if (new PdfName("MCR").equals(type)) {
+                PdfDictionary pg = d.getAsDictionary(PdfName.Pg);
+                PdfNumber mcid = d.getAsNumber(new PdfName("MCID"));
+                if (mcid != null && pageMatches(pdf, pg != null ? pg : inheritedPg, page)) {
+                    out.add(mcid.intValue());
+                }
+            }
+        } else if (k.isArray()) {
+            PdfArray arr = (PdfArray) k;
+            for (int i = 0; i < arr.size(); i++) {
+                collectMcidsFromK(pdf, arr.get(i), page, inheritedPg, out);
+            }
+        }
+    }
+
+    private static boolean pageMatches(PdfDocument pdf, PdfDictionary pgDict, int page) {
+        if (pgDict == null) return false;
+        try {
+            PdfPage p = pdf.getPage(pgDict);
+            return p != null && pdf.getPageNumber(p) == page;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     /** Convert a PDF /Rect [x1 y1 x2 y2] to a BBoxDTO in top/left/height/width form. */
