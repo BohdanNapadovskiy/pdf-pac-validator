@@ -104,6 +104,9 @@
         <configuration>
           <source>17</source>
           <target>17</target>
+          <!-- Emit reflectable parameter names so Spring can resolve
+               @PathVariable / @RequestParam without explicit "name" attributes. -->
+          <parameters>true</parameters>
         </configuration>
       </plugin>
       <plugin>

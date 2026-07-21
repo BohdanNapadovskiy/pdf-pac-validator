@@ -17,9 +17,14 @@ import java.util.List;
 
 /**
  * Emits one PASSED finding per page that contains at least one <code>Do</code> operator
- * whose name argument resolves to an XObject in the page's
+ * whose name argument resolves to a <em>Form</em> XObject in the page's
  * <code>/Resources/XObject</code> dictionary. Matches PAC's per-page emission granularity
- * (verified: 13 pages → 13 PASSED on Complex_Presentation_Sample.pdf).
+ * (verified: 13 pages → 13 PASSED on Complex_Presentation_Sample.pdf; OP_AoD's 16 pages
+ * of image-only Do calls → 0 PASSED / row shown as N/A by PAC).
+ *
+ * <p>Image XObjects don't count — PAC only surfaces the check for Form XObjects because
+ * only those can carry their own struct-tree-relevant content. A page whose Do operators
+ * exclusively reference Images contributes nothing to this row.
  *
  * <p>ERRORs are intentionally not emitted here — veraPDF (7.20-1) drives the failure side
  * for missing references. Same pattern as {@code ValidateAnnotationNesting} (F-14): native
@@ -48,7 +53,7 @@ public class ValidateReferencedExternalObjects implements Rule {
         int streams = page.getContentStreamCount();
         for (int i = 0; i < streams; i++) {
             PdfStream stream = page.getContentStream(i);
-            if (stream != null && hasResolvedDo(stream.getBytes(true), xobjects)) {
+            if (stream != null && hasResolvedFormDo(stream.getBytes(true), xobjects)) {
                 return List.of(new FindingDTO(Severity.PASSED,
                         PDFUACheckpoint.REFERENCED_EXTERNAL_OBJECT, ctx.pageNum(), null));
             }
@@ -56,7 +61,7 @@ public class ValidateReferencedExternalObjects implements Rule {
         return List.of();
     }
 
-    private static boolean hasResolvedDo(byte[] bytes, PdfDictionary xobjects) {
+    private static boolean hasResolvedFormDo(byte[] bytes, PdfDictionary xobjects) {
         if (bytes == null) return false;
         RandomAccessSourceFactory factory = new RandomAccessSourceFactory();
         RandomAccessFileOrArray ra = new RandomAccessFileOrArray(factory.createSource(bytes));
@@ -66,9 +71,11 @@ public class ValidateReferencedExternalObjects implements Rule {
         while (safeNext(tk)) {
             PdfTokenizer.TokenType t = tk.getTokenType();
             if (t == PdfTokenizer.TokenType.Other) {
-                if ("Do".equals(tk.getStringValue()) && lastName != null
-                        && xobjects.getAsStream(new PdfName(lastName)) != null) {
-                    return true;
+                if ("Do".equals(tk.getStringValue()) && lastName != null) {
+                    PdfStream xo = xobjects.getAsStream(new PdfName(lastName));
+                    if (xo != null && PdfName.Form.equals(xo.getAsName(PdfName.Subtype))) {
+                        return true;
+                    }
                 }
                 lastName = null;
             } else if (t == PdfTokenizer.TokenType.Name) {

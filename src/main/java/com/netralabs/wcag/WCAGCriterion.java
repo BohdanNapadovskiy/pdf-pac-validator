@@ -398,7 +398,7 @@ public enum WCAGCriterion {
             PDFUACheckpoint.NESTING_WIDGET_ANNOTATIONS),
     R_4_1_1_UNIQUE_ID_NOTE(
             "4 Robust", "4.1 Compatible", "4.1.1 Parsing",
-            "Unique \"ID\" entries in Note structure elements",
+            "Unique\" ID\" entries in Note structure elements",
             PDFUACheckpoint.UNIQUE_ID_ENTRIES),
 
     R_4_1_2("4 Robust", "4.1 Compatible", "4.1.2 Name, Role, Value", null),

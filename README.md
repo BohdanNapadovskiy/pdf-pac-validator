@@ -33,17 +33,29 @@ curl -X POST http://localhost:8080/api/validate \
   -d '{"pdfPath":"/pdfs/sample.pdf","outputFolder":"/reports"}'
 ```
 
-Response:
+The response inlines the PAC-shaped simple report and returns a `jobId`. The
+detailed report isn't built during POST — fetch it on demand via `jobId`:
 
 ```json
-{"sourceFileName":"sample.pdf","reportPath":"/reports/sample.report.json","status":"success"}
+{
+  "jobId": "6a9754b2-3fe5-405b-95c0-f71c3d861e23",
+  "sourceFileName": "sample.pdf",
+  "simpleReportPath": "/reports/sample.simple.json",
+  "status": "success",
+  "simpleReport": { "body": { ... }, "version": { "major": 2, "minor": 0 } }
+}
+```
+
+```bash
+# Fetch the detailed report — built on demand from cached findings, no PDF re-open.
+curl http://localhost:8080/api/report/6a9754b2-3fe5-405b-95c0-f71c3d861e23/detailed
 ```
 
 ## Documentation
 
 - **[docs/api.md](docs/api.md)** — REST API, payloads, CLI usage, configuration, EC2 deployment.
 - **[docs/json-report-schema.md](docs/json-report-schema.md)** — output JSON schema and semantics.
-- **[CLAUDE.md](CLAUDE.md)** — architecture, coding standards, rule/pipeline internals.
+- **[docs/remaining-parity-plan.md](docs/remaining-parity-plan.md)** — living plan for the residual per-rule count-parity gaps against PAC.
 - `docs/` — additional design notes (veraPDF adapter, PAC parity, coverage checklist).
 
 ## Layout
@@ -54,13 +66,15 @@ src/main/java/
 └── com/netralabs/
     ├── ValidatorApplication.java        (Spring Boot entry point)
     ├── api/
-    │   ├── controller/                  (REST controllers)
-    │   ├── service/                     (validation orchestration)
+    │   ├── controller/                  (REST controllers, jobId lookup)
+    │   ├── service/                     (validation orchestration, jobId registry)
     │   └── dto/                         (request/response records)
     ├── Runner.java                      (four-phase rule pipeline)
     ├── basic/ logicalstructure/ ...     (native iText rules)
     ├── vera/                            (veraPDF adapter)
-    ├── report/                          (PDF/UA + Quality report builders)
+    ├── report/
+    │   ├── pac/                         (PAC simple + detailed report builders)
+    │   └── ...                          (legacy combined report — --legacy flag)
     └── wcag/                            (WCAG 2.2 view + contrast rule)
 ```
 

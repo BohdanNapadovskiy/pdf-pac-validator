@@ -1,12 +1,34 @@
 package com.netralabs.api.dto;
 
-public record ValidateResponse(String sourceFileName, String reportPath, String status) {
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.netralabs.report.pac.SimpleReportDTO;
 
-  public static ValidateResponse success(String sourceFileName, String reportPath) {
-    return new ValidateResponse(sourceFileName, reportPath, "success");
-  }
+/**
+ * POST /api/validate response — carries the {@code jobId} that identifies the
+ * run, the file path of the simple report on disk, the inlined simple report
+ * body for convenience, and a summary {@code status}.
+ * <p>
+ * The detailed report is <em>not</em> generated during POST. Fetch it later
+ * via {@code GET /api/report/{jobId}/detailed}, which builds it on demand
+ * from the cached findings.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record ValidateResponse(
+        String jobId,
+        String sourceFileName,
+        String simpleReportPath,
+        String status,
+        SimpleReportDTO simpleReport) {
 
-  public static ValidateResponse failed(String sourceFileName, String reportPath) {
-    return new ValidateResponse(sourceFileName, reportPath, "failed");
-  }
+    public static ValidateResponse success(String jobId,
+                                           String sourceFileName,
+                                           String simpleReportPath,
+                                           SimpleReportDTO simpleReport) {
+        return new ValidateResponse(jobId, sourceFileName, simpleReportPath,
+                "success", simpleReport);
+    }
+
+    public static ValidateResponse failed(String sourceFileName) {
+        return new ValidateResponse(null, sourceFileName, null, "failed", null);
+    }
 }

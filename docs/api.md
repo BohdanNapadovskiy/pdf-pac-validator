@@ -51,8 +51,11 @@ the mount points (e.g. `/pdfs/foo.pdf`, `/reports`), not host paths.
 
 ### `POST /api/validate`
 
-Runs the full PDF/UA + WCAG + Quality pipeline and writes a JSON report to
-disk. Response contains the resolved report file path and a status flag.
+Runs the full PDF/UA + WCAG pipeline, writes the PAC-shaped **simple report** to
+disk, and returns it inline together with a `jobId`. The detailed report is
+**not** generated here — the findings + page CropBox ranges are cached against
+the `jobId`, and the detailed report is built on demand when the client calls
+`GET /api/report/{jobId}/detailed`.
 
 **Request headers**
 
@@ -72,55 +75,78 @@ disk. Response contains the resolved report file path and a status flag.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `pdfPath` | string | yes | Absolute path to the source PDF, readable by the server process. MSYS/Git-Bash style (`/c/foo/bar.pdf`) is auto-normalized to Windows form. |
-| `outputFolder` | string | no | Absolute path to the folder where the report is written. If omitted or blank, the report is written next to the source PDF as `<basename>.report.json`. |
+| `outputFolder` | string | no | Absolute path to the folder where the reports are written. If omitted or blank, they are written next to the source PDF. |
 
-The report filename is always `<pdf-basename>.report.json`. Existing files at
-that path are overwritten.
+The simple-report filename is always `<pdf-basename>.simple.json`. Existing
+files at that path are overwritten. The detailed report is written to
+`<pdf-basename>.detailed.json` **only** once the client fetches it via
+`GET /api/report/{jobId}/detailed`.
 
-**Response body** — always the same shape, regardless of outcome.
+**Response body**
 
 ```json
 {
+  "jobId": "6a9754b2-3fe5-405b-95c0-f71c3d861e23",
   "sourceFileName": "sample.pdf",
-  "reportPath": "C:\\projects\\pdf\\report\\sample.report.json",
-  "status": "success"
+  "simpleReportPath": "C:\\projects\\pdf\\report\\sample.simple.json",
+  "status": "success",
+  "simpleReport": {
+    "body": { "jobId": "...", "name": "sample", "documentInformation": { ... },
+              "reports": [ { "type": "PDF/UA", "uaIndex": 94.5, "report": { ... } },
+                           { "type": "WCAG2CheckSet", "report": { ... } } ],
+              "creationDate": "2026-07-17T09:00:00Z" },
+    "version": { "major": 2, "minor": 0 }
+  }
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
+| `jobId` | string \| null | UUID for the run. Pass in the URL for `GET /api/report/{jobId}/detailed`. `null` on failure. |
 | `sourceFileName` | string \| null | Filename portion of `pdfPath`. `null` when `pdfPath` was missing/blank. |
-| `reportPath` | string \| null | Absolute path of the written JSON report. `null` on failure. |
+| `simpleReportPath` | string \| null | Absolute path of the written simple report. `null` on failure. |
 | `status` | string | `"success"` or `"failed"`. |
+| `simpleReport` | object \| null | Inline copy of the simple report body — the PAC-shaped hierarchical result. `null` on failure. |
 
 **Status codes**
 
 | Code | Meaning |
 |---|---|
-| `200 OK` | Report generated and written. |
+| `200 OK` | Simple report generated and written. |
 | `400 Bad Request` | `pdfPath` missing or blank. |
 | `500 Internal Server Error` | Validation failed (file not found, unreadable PDF, iText/veraPDF error). Server log contains the stack trace. |
 
+### `GET /api/report/{jobId}/detailed`
+
+Builds the detailed report on demand from the cached findings for `jobId`
+and returns it as JSON. Also persists it to disk as
+`<pdf-basename>.detailed.json` in the original output folder so a subsequent
+call is cheap.
+
+- `200 OK` with `Content-Type: application/json` — the detailed report body.
+- `404 Not Found` — unknown `jobId` (process restarted, or job never ran).
+- `500 Internal Server Error` — building the detailed report failed.
+
+The `jobId → { findings, cropBoxRanges, paths }` registry is in-memory (a
+`ConcurrentHashMap` in `ValidationService`) — a JVM restart clears it, so
+persist the simple report response client-side if you need durability
+across restarts (and regenerate via a fresh POST when the state is lost).
+
+### `GET /api/report/{jobId}/simple`
+
+Streams the simple report file from disk. Kept mostly for symmetry — the
+POST response already inlines the simple report.
+
 ### Examples
 
-**cURL — success**
+**cURL — POST + fetch detailed**
 
 ```bash
-curl -X POST http://localhost:8080/api/validate \
+resp=$(curl -sX POST http://localhost:8080/api/validate \
   -H "Content-Type: application/json" \
-  -d '{"pdfPath":"C:/projects/pdf/sample.pdf","outputFolder":"C:/projects/pdf/report"}'
-```
-
-```json
-{"sourceFileName":"sample.pdf","reportPath":"C:\\projects\\pdf\\report\\sample.report.json","status":"success"}
-```
-
-**cURL — default output folder (next to source)**
-
-```bash
-curl -X POST http://localhost:8080/api/validate \
-  -H "Content-Type: application/json" \
-  -d '{"pdfPath":"C:/projects/pdf/sample.pdf"}'
+  -d '{"pdfPath":"C:/projects/pdf/sample.pdf","outputFolder":"C:/projects/pdf/report"}')
+jobId=$(echo "$resp" | jq -r .jobId)
+curl -s "http://localhost:8080/api/report/${jobId}/detailed" > detailed.json
 ```
 
 **cURL — Docker with volume mount**
@@ -139,7 +165,7 @@ curl -X POST http://localhost:8080/api/validate \
   -d '{"pdfPath":"/does-not-exist.pdf"}'
 ```
 
-Returns `HTTP 500` with `{"sourceFileName":"does-not-exist.pdf","reportPath":null,"status":"failed"}`.
+Returns `HTTP 500` with `{"sourceFileName":"does-not-exist.pdf","status":"failed"}` (other fields omitted via `@JsonInclude(NON_NULL)`).
 
 ---
 
@@ -149,32 +175,28 @@ The pre-REST CLI entry point is still available:
 
 ```bash
 java -cp "target/classes;$(cat /tmp/cp.txt)" PDFValidator \
-  <path-to-pdf> [-o <output.json>]
+  <path-to-pdf> [-o <output-folder>] [--legacy]
 ```
 
-`-o` accepts a full file path (folder + filename), not just a folder. When
-omitted, the report is written next to the source PDF.
+- `-o` accepts an output folder (or a full path — only the parent folder is used). When omitted, the reports are written next to the source PDF.
+- `--legacy` additionally writes the pre-PAC combined `<name>.report.json` alongside the two new files.
+
+The CLI prints the `jobId`, `simpleReportPath`, and `detailedReportPath` on success.
 
 ---
 
 ## Report output
 
-Each report is a single JSON document with the shape:
+Each run produces **two JSON files** side by side:
 
-```json
-{
-  "reports": {
-    "document": { ... },
-    "info":     { ... },
-    "PDF/UA":   { ... },
-    "WCAG":     { ... },
-    "quality":  { ... }
-  }
-}
-```
+- `<pdf-basename>.simple.json` — hierarchical PAC-shaped tree (`{ body: { jobId, name, documentInformation, reports: [{type: "PDF/UA", uaIndex, report}, {type: "WCAG2CheckSet", report}], creationDate }, version }`). Every node carries PAC-canonical `checkId` + `caption` and counts (`errorCount / warningCount / passedCount / terminationCount`) plus severity (`Error=0 / Warning=1 / Passed=2 / Skipped=3`).
+- `<pdf-basename>.detailed.json` — flat, failure-only issue list per report type. Each issue has `checkId`, `issueId`, aggregate `count`, plus a `details[]` array of `{ pageIndex, rectangle: {top, bottom, left, right} }` — one per instance so a viewer can highlight the offending region. Also carries `cropBoxRanges` (contiguous same-CropBox pages coalesced) so `rectangle` coordinates map cleanly back to the page.
+
+Passing `--legacy` (CLI) additionally emits the pre-PAC combined
+`<pdf-basename>.report.json` with the older shape
+(`{ reports: { document, info, "PDF/UA", "WCAG", quality } }`).
 
 Full schema and semantics: [`docs/json-report-schema.md`](json-report-schema.md).
-The four report branches mirror PAC's tree structure.
 
 ---
 

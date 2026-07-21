@@ -35,8 +35,9 @@ public class Runner {
     List<FindingDTO> out = new ArrayList<>();
     int pages = pdf.getNumberOfPages();
 
+    boolean isUa2 = declaresPdfUa2(pdf);
     VeraValidationResults vera = (pdfPath != null)
-        ? VeraRunner.validate(pdfPath, declaresPdfUa2(pdf))
+        ? VeraRunner.validate(pdfPath, /*applyUa1CoreRules*/ !isUa2, /*applyUa2CoreRules*/ isUa2)
         : VeraValidationResults.empty();
 
     // Materialize rule instances. Native and vera adapter can coexist for a checkpoint —
