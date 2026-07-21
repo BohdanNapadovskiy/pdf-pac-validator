@@ -7,8 +7,8 @@ import lombok.NoArgsConstructor;
 
 /**
  * One entry in {@code body.reports[]} of the simple report — carries the report
- * type ("PDF/UA" or "WCAG"), the compliance index (PDF/UA only), and the
- * fully-nested report tree.
+ * type ("PDF/UA" or "WCAG"), the compliance index, and the fully-nested report
+ * tree.
  */
 @Data
 @NoArgsConstructor

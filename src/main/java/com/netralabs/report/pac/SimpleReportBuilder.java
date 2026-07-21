@@ -177,6 +177,7 @@ public final class SimpleReportBuilder {
         ReportSectionDTO section = new ReportSectionDTO();
         // PAC labels the WCAG section by its root checkId, not the display name.
         section.setType(PacCheckId.WCAG_ROOT);
+        section.setUaIndex(computeUaIndex(rootCounts));
         section.setReport(root);
         return section;
     }
