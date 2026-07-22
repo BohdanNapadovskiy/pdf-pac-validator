@@ -31,6 +31,7 @@ public class PDFValidator {
       System.exit(1);
       return;
     }
+    String bucketName = "aod-main-v1-staging"; /* default bucket */
     String path = args[0];
     String explicitOutput = null;
     boolean emitLegacy = false;
@@ -59,7 +60,7 @@ public class PDFValidator {
     log.info("Starting PDF validation for: {}", path);
     try {
       ValidationService service = new ValidationService();
-      SimpleResult simple = service.generateSimple(path, outputFolder, emitLegacy);
+      SimpleResult simple = service.generateSimple(bucketName, path, outputFolder, emitLegacy);
       log.info("Simple report written to:   {}", simple.simplePath());
       if (simple.legacyPath() != null) log.info("Legacy report written to:  {}", simple.legacyPath());
 
