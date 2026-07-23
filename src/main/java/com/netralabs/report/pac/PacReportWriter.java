@@ -28,6 +28,27 @@ public final class PacReportWriter {
         return write(report, inputPdfPath, outputFolder, ".detailed.json");
     }
 
+    /** Serialise a report to a byte payload — used by the S3 upload path. */
+    public static byte[] serialize(Object report) throws IOException {
+        return MAPPER.writeValueAsBytes(report);
+    }
+
+    /** Derive the {@code <base>.simple.json} file name from an input path. */
+    public static String simpleReportFileName(String inputPath) {
+        return baseName(inputPath) + ".simple.json";
+    }
+
+    /** Derive the {@code <base>.detailed.json} file name from an input path. */
+    public static String detailedReportFileName(String inputPath) {
+        return baseName(inputPath) + ".detailed.json";
+    }
+
+    private static String baseName(String inputPath) {
+        String name = Paths.get(inputPath).getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
     private static Path write(Object report, String inputPdfPath, String outputFolder, String suffix) throws IOException {
         Path out = resolvePath(inputPdfPath, outputFolder, suffix);
         Path parent = out.toAbsolutePath().getParent();

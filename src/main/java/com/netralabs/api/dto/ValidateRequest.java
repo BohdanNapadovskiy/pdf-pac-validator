@@ -1,3 +1,3 @@
 package com.netralabs.api.dto;
 
-public record ValidateRequest(String pdfPath, String outputFolder, String bucketName) {}
+public record ValidateRequest(String bucketName, String pdfPath, String outputFolderPath) {}

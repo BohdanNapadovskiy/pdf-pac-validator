@@ -1,74 +1,52 @@
 import com.netralabs.api.service.ValidationService;
-import com.netralabs.api.service.ValidationService.DetailedResult;
-import com.netralabs.api.service.ValidationService.SimpleResult;
+import com.netralabs.api.service.ValidationService.S3Result;
 import lombok.extern.slf4j.Slf4j;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Optional;
-
 /**
- * Legacy CLI entry point. Kept as a thin wrapper around {@link ValidationService} for
- * backwards compatibility with the manual test workflow (see CLAUDE.md). The primary
- * runtime is now the Spring Boot REST API in {@code com.netralabs.api}.
+ * Legacy CLI entry point. Kept as a thin wrapper around {@link ValidationService}
+ * for backwards compatibility. The primary runtime is the Spring Boot REST API
+ * in {@code com.netralabs.api}.
  * <p>
  * Usage:
  * <pre>
- * PDFValidator &lt;path-to-pdf&gt; [-o &lt;output-folder&gt;] [--legacy]
+ * PDFValidator &lt;s3-pdf-key&gt; [-o &lt;s3-output-folder&gt;] [-b &lt;bucket&gt;]
  * </pre>
- * The CLI runs both stages of the API contract for convenience: it generates
- * the simple report, then immediately builds the detailed report from cached
- * findings and writes both to disk. Passing {@code --legacy} additionally
- * emits the pre-PAC combined report {@code <name>.report.json}.
+ * Both the source PDF and the generated reports live in the same S3 bucket.
  */
 @Slf4j
 public class PDFValidator {
 
+  private static final String DEFAULT_BUCKET = "aod-main-v1-staging";
+
   public static void main(String[] args) {
     if (args == null || args.length == 0) {
-      log.error("No input path provided. Usage: java -cp ... PDFValidator <path-to-pdf> [-o <output.json>] [--legacy]");
+      log.error("No input path provided. Usage: java -cp ... PDFValidator <s3-pdf-key> [-o <s3-output-folder>] [-b <bucket>]");
       System.exit(1);
       return;
     }
-    String bucketName = "aod-main-v1-staging"; /* default bucket */
-    String path = args[0];
-    String explicitOutput = null;
-    boolean emitLegacy = false;
+    String bucketName = DEFAULT_BUCKET;
+    String pdfPath = args[0];
+    String outputFolderPath = null;
     for (int i = 1; i < args.length; i++) {
       String arg = args[i];
-      if ("--legacy".equals(arg)) {
-        emitLegacy = true;
-      } else if ("-o".equals(arg) && i + 1 < args.length) {
-        explicitOutput = args[i + 1];
+      if ("-o".equals(arg) && i + 1 < args.length) {
+        outputFolderPath = args[i + 1];
+        i++;
+      } else if ("-b".equals(arg) && i + 1 < args.length) {
+        bucketName = args[i + 1];
         i++;
       }
     }
-    String outputFolder = null;
-    if (explicitOutput != null) {
-      Path p = Paths.get(explicitOutput);
-      // Accept -o as either an existing folder or a file path. When it's a
-      // folder we use it directly; otherwise fall back to its parent so a
-      // path like "out/report.json" resolves to "out/".
-      if (Files.isDirectory(p)) {
-        outputFolder = p.toString();
-      } else {
-        outputFolder = p.getParent() != null ? p.getParent().toString() : ".";
-      }
-    }
 
-    log.info("Starting PDF validation for: {}", path);
+    log.info("Starting PDF validation for: s3://{}/{}", bucketName, pdfPath);
     try {
       ValidationService service = new ValidationService();
-      SimpleResult simple = service.generateSimple(bucketName, path, outputFolder, emitLegacy);
-      log.info("Simple report written to:   {}", simple.simplePath());
-      if (simple.legacyPath() != null) log.info("Legacy report written to:  {}", simple.legacyPath());
-
-      Optional<DetailedResult> detailed = service.buildDetailed(simple.jobId(), /* persistToDisk= */ true);
-      detailed.ifPresent(r -> log.info("Detailed report written to: {}", r.detailedPath()));
-      log.info("Job id: {}", simple.jobId());
+      S3Result result = service.validate(bucketName, pdfPath, outputFolderPath);
+      log.info("Simple report:   {}", result.simpleReportS3Uri());
+      log.info("Detailed report: {}", result.detailedReportS3Uri());
+      log.info("Job id: {}", result.jobId());
     } catch (Exception e) {
-      log.error("Validation failed for {}: {}", path, e.getMessage(), e);
+      log.error("Validation failed for {}: {}", pdfPath, e.getMessage(), e);
       System.exit(1);
     }
   }
