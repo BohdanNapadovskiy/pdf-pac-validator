@@ -264,7 +264,6 @@ public enum PDFUACheckpoint {
             "Natural language",
             "Correctness of language attribute",
             "Document language metadata contains a syntax error",
-            "Document language metadata contains a syntax error",
             ValidateLangAttributeCorrectness::new,
             Phase.DOCUMENT
     ),
@@ -388,7 +387,7 @@ public enum PDFUACheckpoint {
             "Logical Structure",
             "Structure Elements",
             "Notes",
-            "Unique \"ID\" entries in Note structure elements",
+            "Unique\" ID\" entries in Note structure elements",
             "",
             ValidateNoteIdUniqueness::new,
             Phase.DOCUMENT
@@ -715,8 +714,8 @@ public enum PDFUACheckpoint {
             "Alternative Descriptions",
             "Alternative description for annotations",
             "",
-            null,
-            null
+            com.netralabs.logicalstructure.structureelements.annotations.ValidateAnnotationAltText::new,
+            Phase.DOCUMENT
     ),
 
     //Metadata Part
@@ -804,6 +803,76 @@ public enum PDFUACheckpoint {
             "",
             com.netralabs.wcag.contrast.ValidateContrastOfText::new,
             Phase.DOCUMENT
+    ),
+
+    // ================================================================
+    // Quality-only checkpoints — reportName="Quality" so ReportBuilder
+    // omits them from the PDF/UA report tree. Feed QualityCriterion
+    // leaves via source mappings.
+    // ================================================================
+    Q_DOC_TITLE_VALIDITY(
+            "Quality", "Quality", "Document", "Validity of document title", "",
+            com.netralabs.quality.rules.ValidateDocumentTitle::new, Phase.DOCUMENT
+    ),
+    Q_ARTIFACTED_ON_BODY(
+            "Quality", "Quality", "Content", "Artifacted content on page body", "",
+            com.netralabs.quality.rules.ValidateArtifactedOnBody::new, Phase.DOCUMENT
+    ),
+    Q_TAGGED_TEXT_WHITESPACE(
+            "Quality", "Quality", "Content", "Tagged text consists of only whitespace", "",
+            com.netralabs.quality.rules.ValidateTaggedWhitespaceText::new, Phase.DOCUMENT
+    ),
+    Q_TAGGED_OUTSIDE_PAGE(
+            "Quality", "Quality", "Content", "Tagged content exists outside of the page boundary", "",
+            com.netralabs.quality.rules.ValidateTaggedOutsidePage::new, Phase.DOCUMENT
+    ),
+    Q_PRESENCE_HEADINGS(
+            "Quality", "Quality", "Structure", "Presence of headings", "",
+            com.netralabs.quality.rules.ValidatePresenceOfHeadings::new, Phase.DOCUMENT
+    ),
+    Q_PRESENCE_BOOKMARKS(
+            "Quality", "Quality", "Structure", "Presence of bookmarks (document outline) if there are headings", "",
+            com.netralabs.quality.rules.ValidatePresenceOfBookmarks::new, Phase.DOCUMENT
+    ),
+    Q_TOCI_CONTAIN_LINK(
+            "Quality", "Quality", "TOC", "\"TOCI\" elements contain \"Link\" elements", "",
+            com.netralabs.quality.rules.ValidateTociContainLink::new, Phase.DOCUMENT
+    ),
+    Q_TOCI_LINKED_TO_HEADINGS(
+            "Quality", "Quality", "TOC", "\"TOCI\" elements are correctly linked to headings", "",
+            com.netralabs.quality.rules.ValidateTociLinkedToHeadings::new, Phase.DOCUMENT
+    ),
+    Q_ALT_TEXT_VALIDITY(
+            "Quality", "Quality", "Alt", "Validity of alternative texts", "",
+            com.netralabs.quality.rules.ValidateAltTextValidity::new, Phase.DOCUMENT
+    ),
+    Q_ALT_ON_TEXT_ELEMENTS(
+            "Quality", "Quality", "Alt", "Alternative text on text elements", "",
+            com.netralabs.quality.rules.ValidateAltOnTextElements::new, Phase.DOCUMENT
+    ),
+    Q_LINK_COMPLETENESS(
+            "Quality", "Quality", "Structure", "Completeness of \"Link\" elements", "",
+            com.netralabs.quality.rules.ValidateLinkCompleteness::new, Phase.DOCUMENT
+    ),
+    Q_LI_FORMAL_CORRECTNESS(
+            "Quality", "Quality", "Structure", "Formal correctness of \"LI\" elements", "",
+            com.netralabs.quality.rules.ValidateLiFormalCorrectness::new, Phase.DOCUMENT
+    ),
+    Q_TABLE_COMPLETENESS(
+            "Quality", "Quality", "Structure", "Completeness of \"Table\" elements", "",
+            com.netralabs.quality.rules.ValidateTableCompleteness::new, Phase.DOCUMENT
+    ),
+    Q_NOTE_REFERENCED(
+            "Quality", "Quality", "Notes", "\"Note\" elements are referenced", "",
+            com.netralabs.quality.rules.ValidateNoteReferenced::new, Phase.DOCUMENT
+    ),
+    Q_NOTE_CONTAINS_LBL(
+            "Quality", "Quality", "Notes", "\"Note\" elements contain \"Lbl\" elements", "",
+            com.netralabs.quality.rules.ValidateNoteContainsLbl::new, Phase.DOCUMENT
+    ),
+    Q_P_CONTAINS_NOTE(
+            "Quality", "Quality", "Notes", "\"P\" elements contain \"Note\" elements", "",
+            com.netralabs.quality.rules.ValidatePContainsNote::new, Phase.DOCUMENT
     );
 
 

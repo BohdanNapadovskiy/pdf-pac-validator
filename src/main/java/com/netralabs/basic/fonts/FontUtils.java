@@ -30,13 +30,6 @@ public class FontUtils {
         }
     }
 
-    public static void forEachFontOnPage(PdfDocument pdf, int page,
-                                         BiConsumer<PdfName, PdfDictionary> visitor) {
-        PdfDictionary res = pdf.getPage(page).getResources().getPdfObject();
-        if (res == null) return;
-        visitResources(res, new HashSet<>(), visitor);
-    }
-
     private static void visitResources(PdfDictionary resources, Set<Integer> seen,
                                        BiConsumer<PdfName, PdfDictionary> visitor) {
         if (resources == null) return;
@@ -124,12 +117,6 @@ public class FontUtils {
         return font.get(PdfName.Encoding);
     }
 
-    public static String fontResName(PdfName fname, PdfDictionary font) {
-        String n = fname != null ? fname.getValue() : null;
-        PdfName base = font.getAsName(PdfName.BaseFont);
-        return (base != null ? base.getValue() : n);
-    }
-
     public static boolean isWinAnsiOrMacRomanName(PdfObject enc) {
         if (enc == null || !enc.isName()) return false;
         String v = ((PdfName) enc).getValue();
@@ -138,9 +125,7 @@ public class FontUtils {
 
     public static boolean isIdentityName(PdfObject enc) {
         if (enc == null || !enc.isName()) return false;
-        PdfName n = (PdfName) enc;
-//        return PdfName.IdentityH.equals(n) || PdfName.IdentityV.equals(n);
-        return PdfName.Identity.equals(n);
+        return PdfName.Identity.equals((PdfName) enc);
     }
 
     public static boolean baseIsWinAnsiOrMacRoman(PdfDictionary encDict) {

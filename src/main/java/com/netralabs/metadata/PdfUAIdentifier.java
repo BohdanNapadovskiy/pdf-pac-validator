@@ -29,7 +29,14 @@ public class PdfUAIdentifier implements Rule {
       XMPMetaFactory.getSchemaRegistry()
           .registerNamespace("http://www.aiim.org/pdfua/ns/id/", "pdfuaid");
       String part = xmp.getPropertyString("http://www.aiim.org/pdfua/ns/id/", "part");
-      out.add(new FindingDTO("1".equals(part) ? PASSED : ERROR, PDF_UA_IDENTIFIER, 0, null));
+      if ("1".equals(part) || "2".equals(part)) {
+        out.add(new FindingDTO(PASSED, PDF_UA_IDENTIFIER, 0, null));
+      } else if (part == null || part.isBlank()) {
+        out.add(new FindingDTO(ERROR, PDF_UA_IDENTIFIER, 0, null));
+      } else {
+        out.add(new FindingDTO(ERROR, PDF_UA_IDENTIFIER, 0, null,
+            "PDF/UA identifier \"pdfuaid:part\" has invalid value \"" + part + "\""));
+      }
     } catch (Exception e) {
       out.add(new FindingDTO(ERROR, PDF_UA_IDENTIFIER, 0, null));
     }

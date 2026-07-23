@@ -7,6 +7,7 @@ import com.netralabs.report.CheckpointStatus;
 import com.netralabs.report.CountsDTO;
 import com.netralabs.report.FindingDTO;
 import com.netralabs.report.FindingEntryDTO;
+import com.netralabs.report.ShortSummaryEntryDTO;
 import com.netralabs.vera.VeraRuleMapping;
 import com.netralabs.wcag.WCAGCriterion;
 
@@ -85,7 +86,19 @@ public final class WCAGReportBuilder {
     }
     report.setCounts(rootCounts);
     report.setStatus(rollup(principleStatuses));
+    report.setShortSummary(buildShortSummary(report));
     return report;
+  }
+
+  /** One row per Guideline (1.1, 1.2, ..., 4.1) — matches PAC's WCAG summary tab. */
+  private static List<ShortSummaryEntryDTO> buildShortSummary(WCAGReportDTO report) {
+    List<ShortSummaryEntryDTO> entries = new ArrayList<>();
+    for (PrincipleDTO principle : report.getPrinciples()) {
+      for (GuidelineDTO guideline : principle.getGuidelines()) {
+        entries.add(new ShortSummaryEntryDTO(guideline.getName(), guideline.getStatus(), guideline.getCounts()));
+      }
+    }
+    return entries;
   }
 
   private static CriterionDTO buildCriterion(String criterionName,

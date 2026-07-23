@@ -54,9 +54,10 @@ public class ValidateFormFieldAltNames implements Rule {
 
     /**
      * Recursively walk field/widget dictionaries. A dict is a "field" when it declares
-     * {@code /T} (partial field name) or {@code /FT} (field type); each such dict emits
-     * one finding. Non-field descendants (nested Widget-only annotations) are skipped —
-     * they're covered by the parent field.
+     * {@code /T} (partial field name) or {@code /FT} (field type). PAC only tallies
+     * <em>leaf</em> fields (those without child fields); a non-leaf field is a naming
+     * container whose accessibility text is provided by its descendants. We recurse
+     * unconditionally but only emit for leaves.
      */
     private static void walk(PdfDictionary node, List<FindingDTO> out, Set<Integer> visited) {
         if (node.getIndirectReference() != null) {
@@ -64,14 +65,23 @@ public class ValidateFormFieldAltNames implements Rule {
             if (!visited.add(id)) return;
         }
         boolean isField = node.get(PdfName.T) != null || node.get(PdfName.FT) != null;
-        if (isField) {
+        PdfArray kids = node.getAsArray(PdfName.Kids);
+        boolean hasFieldKids = false;
+        if (kids != null) {
+            for (int i = 0; i < kids.size(); i++) {
+                if (kids.get(i) instanceof PdfDictionary kd
+                        && (kd.get(PdfName.T) != null || kd.get(PdfName.FT) != null)) {
+                    hasFieldKids = true;
+                    break;
+                }
+            }
+        }
+        if (isField && !hasFieldKids) {
             out.add(evaluateField(node));
         }
-        PdfArray kids = node.getAsArray(PdfName.Kids);
         if (kids == null) return;
         for (int i = 0; i < kids.size(); i++) {
-            PdfObject k = kids.get(i);
-            if (k instanceof PdfDictionary kd
+            if (kids.get(i) instanceof PdfDictionary kd
                     && (kd.get(PdfName.T) != null || kd.get(PdfName.FT) != null)) {
                 walk(kd, out, visited);
             }
