@@ -1,5 +1,7 @@
 package com.netralabs.api.dto;
 
+import java.util.Optional;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.netralabs.report.pac.SimpleReportDTO;
 
@@ -18,17 +20,19 @@ public record ValidateResponse(
         String sourceFileName,
         String simpleReportPath,
         String status,
-        SimpleReportDTO simpleReport) {
+        SimpleReportDTO simpleReport,
+        Optional<String> message
+    ) {
 
     public static ValidateResponse success(String jobId,
                                            String sourceFileName,
                                            String simpleReportPath,
                                            SimpleReportDTO simpleReport) {
         return new ValidateResponse(jobId, sourceFileName, simpleReportPath,
-                "success", simpleReport);
+                "success", simpleReport, null);
     }
 
-    public static ValidateResponse failed(String sourceFileName) {
-        return new ValidateResponse(null, sourceFileName, null, "failed", null);
+    public static ValidateResponse failed(String sourceFileName, String message) {
+        return new ValidateResponse(null, sourceFileName, null, "failed", null, Optional.ofNullable(message));
     }
 }

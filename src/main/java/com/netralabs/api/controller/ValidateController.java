@@ -43,12 +43,12 @@ public class ValidateController {
    */
   @PostMapping("/validate")
   public ResponseEntity<ValidateResponse> validate(@RequestBody ValidateRequest request) {
-    if (request == null || request.pdfPath() == null || request.pdfPath().isBlank()) {
-      return ResponseEntity.badRequest().body(ValidateResponse.failed(null));
+    if (request == null || request.pdfPath() == null || request.pdfPath().isBlank() || (request.bucketName() == null || request.bucketName().isBlank())) {
+      return ResponseEntity.badRequest().body(ValidateResponse.failed(null, null));
     }
     String sourceFileName = Paths.get(request.pdfPath()).getFileName().toString();
     try {
-      SimpleResult result = validationService.generateSimple(request.pdfPath(), request.outputFolder(), false);
+      SimpleResult result = validationService.generateSimple(request.bucketName(), request.pdfPath(), request.outputFolder(), false);
       log.info("Job {}: simple={}", result.jobId(), result.simplePath());
       return ResponseEntity.ok(ValidateResponse.success(
               result.jobId(),
@@ -57,7 +57,7 @@ public class ValidateController {
               result.simpleReport()));
     } catch (Exception e) {
       log.error("Validation failed for {}: {}", request.pdfPath(), e.getMessage(), e);
-      return ResponseEntity.status(500).body(ValidateResponse.failed(sourceFileName));
+      return ResponseEntity.status(500).body(ValidateResponse.failed(sourceFileName, e.getMessage()));
     }
   }
 
