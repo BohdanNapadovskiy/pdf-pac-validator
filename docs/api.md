@@ -1,7 +1,7 @@
 # PDF PAC Validator — Usage Guide
 
 REST + CLI PDF/UA & WCAG 2.2 accessibility validator. Produces PAC-style JSON
-reports.
+reports and uploads them to S3.
 
 ## Table of contents
 
@@ -16,6 +16,10 @@ reports.
 
 ## Running the app
 
+Both the source PDF and the generated reports live in S3. The process needs
+AWS credentials with `s3:GetObject` on the source key and `s3:PutObject` on
+the destination prefix.
+
 ### Local (Java 17+)
 
 ```bash
@@ -29,7 +33,9 @@ Or, for dev iteration:
 mvn spring-boot:run
 ```
 
-Server listens on `http://localhost:8080`.
+Server listens on `http://localhost:8080`. AWS credentials are picked up via
+the default provider chain (`~/.aws/credentials`, `AWS_*` env vars, or an
+instance profile).
 
 ### Docker
 
@@ -37,13 +43,14 @@ Server listens on `http://localhost:8080`.
 docker build -t pdf-validator:latest .
 
 docker run --rm -p 8080:8080 \
-  -v /host/pdfs:/pdfs:ro \
-  -v /host/reports:/reports \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_ACCESS_KEY_ID=... \
+  -e AWS_SECRET_ACCESS_KEY=... \
   pdf-validator:latest
 ```
 
-Paths passed in the JSON body must be visible **inside the container** — use
-the mount points (e.g. `/pdfs/foo.pdf`, `/reports`), not host paths.
+On EC2 with an instance profile, drop the key env vars — the SDK reads
+credentials from IMDS automatically.
 
 ---
 
@@ -51,11 +58,10 @@ the mount points (e.g. `/pdfs/foo.pdf`, `/reports`), not host paths.
 
 ### `POST /api/validate`
 
-Runs the full PDF/UA + WCAG pipeline, writes the PAC-shaped **simple report** to
-disk, and returns it inline together with a `jobId`. The detailed report is
-**not** generated here — the findings + page CropBox ranges are cached against
-the `jobId`, and the detailed report is built on demand when the client calls
-`GET /api/report/{jobId}/detailed`.
+Downloads the PDF from `s3://{bucketName}/{pdfPath}`, runs the full PDF/UA +
+WCAG pipeline, and uploads **both** the simple and detailed PAC reports to
+`s3://{bucketName}/{outputFolderPath}/`. The response returns the S3 URIs
+where the reports were written — clients read the JSON directly from S3.
 
 **Request headers**
 
@@ -67,20 +73,21 @@ the `jobId`, and the detailed report is built on demand when the client calls
 
 ```json
 {
-  "pdfPath": "C:/projects/pdf/sample.pdf",
-  "outputFolder": "C:/projects/pdf/report"
+  "bucketName": "pdf-tagging-data-381490270597",
+  "pdfPath": "input/sample.pdf",
+  "outputFolderPath": "reports"
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `pdfPath` | string | yes | Absolute path to the source PDF, readable by the server process. MSYS/Git-Bash style (`/c/foo/bar.pdf`) is auto-normalized to Windows form. |
-| `outputFolder` | string | no | Absolute path to the folder where the reports are written. If omitted or blank, they are written next to the source PDF. |
+| `bucketName` | string | yes | S3 bucket that holds both the source PDF and the destination reports. |
+| `pdfPath` | string | yes | S3 key of the source PDF inside `bucketName`. |
+| `outputFolderPath` | string | no | S3 key prefix under `bucketName` where the two reports are written. Blank / omitted means the bucket root. |
 
-The simple-report filename is always `<pdf-basename>.simple.json`. Existing
-files at that path are overwritten. The detailed report is written to
-`<pdf-basename>.detailed.json` **only** once the client fetches it via
-`GET /api/report/{jobId}/detailed`.
+Report keys are `{outputFolderPath}/{pdf-basename}.simple.json` and
+`{outputFolderPath}/{pdf-basename}.detailed.json`. Existing objects at those
+keys are overwritten.
 
 **Response body**
 
@@ -88,113 +95,94 @@ files at that path are overwritten. The detailed report is written to
 {
   "jobId": "6a9754b2-3fe5-405b-95c0-f71c3d861e23",
   "sourceFileName": "sample.pdf",
-  "simpleReportPath": "C:\\projects\\pdf\\report\\sample.simple.json",
-  "status": "success",
-  "simpleReport": {
-    "body": { "jobId": "...", "name": "sample", "documentInformation": { ... },
-              "reports": [ { "type": "PDF/UA", "uaIndex": 94.5, "report": { ... } },
-                           { "type": "WCAG2CheckSet", "report": { ... } } ],
-              "creationDate": "2026-07-17T09:00:00Z" },
-    "version": { "major": 2, "minor": 0 }
-  }
+  "simpleReportS3Uri": "s3://pdf-tagging-data-381490270597/reports/sample.simple.json",
+  "detailedReportS3Uri": "s3://pdf-tagging-data-381490270597/reports/sample.detailed.json",
+  "status": "success"
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `jobId` | string \| null | UUID for the run. Pass in the URL for `GET /api/report/{jobId}/detailed`. `null` on failure. |
-| `sourceFileName` | string \| null | Filename portion of `pdfPath`. `null` when `pdfPath` was missing/blank. |
-| `simpleReportPath` | string \| null | Absolute path of the written simple report. `null` on failure. |
+| `jobId` | string \| null | UUID for the run. `null` on failure. |
+| `sourceFileName` | string \| null | Filename portion of `pdfPath`. `null` when the request was invalid. |
+| `simpleReportS3Uri` | string \| null | `s3://…` URI of the simple report. `null` on failure. |
+| `detailedReportS3Uri` | string \| null | `s3://…` URI of the detailed report. `null` on failure. |
 | `status` | string | `"success"` or `"failed"`. |
-| `simpleReport` | object \| null | Inline copy of the simple report body — the PAC-shaped hierarchical result. `null` on failure. |
+| `message` | string \| null | Human-readable error message on failure; omitted on success. |
 
 **Status codes**
 
 | Code | Meaning |
 |---|---|
-| `200 OK` | Simple report generated and written. |
-| `400 Bad Request` | `pdfPath` missing or blank. |
-| `500 Internal Server Error` | Validation failed (file not found, unreadable PDF, iText/veraPDF error). Server log contains the stack trace. |
-
-### `GET /api/report/{jobId}/detailed`
-
-Builds the detailed report on demand from the cached findings for `jobId`
-and returns it as JSON. Also persists it to disk as
-`<pdf-basename>.detailed.json` in the original output folder so a subsequent
-call is cheap.
-
-- `200 OK` with `Content-Type: application/json` — the detailed report body.
-- `404 Not Found` — unknown `jobId` (process restarted, or job never ran).
-- `500 Internal Server Error` — building the detailed report failed.
-
-The `jobId → { findings, cropBoxRanges, paths }` registry is in-memory (a
-`ConcurrentHashMap` in `ValidationService`) — a JVM restart clears it, so
-persist the simple report response client-side if you need durability
-across restarts (and regenerate via a fresh POST when the state is lost).
-
-### `GET /api/report/{jobId}/simple`
-
-Streams the simple report file from disk. Kept mostly for symmetry — the
-POST response already inlines the simple report.
+| `200 OK` | Both reports generated and uploaded. |
+| `400 Bad Request` | `bucketName` or `pdfPath` missing / blank. |
+| `500 Internal Server Error` | Download, validation, or upload failed. Server log contains the stack trace. |
 
 ### Examples
 
-**cURL — POST + fetch detailed**
+**cURL**
+
+```bash
+curl -X POST http://localhost:8080/api/validate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bucketName": "pdf-tagging-data-381490270597",
+    "pdfPath": "input/sample.pdf",
+    "outputFolderPath": "reports"
+  }'
+```
+
+**cURL — read the report back from S3**
 
 ```bash
 resp=$(curl -sX POST http://localhost:8080/api/validate \
   -H "Content-Type: application/json" \
-  -d '{"pdfPath":"C:/projects/pdf/sample.pdf","outputFolder":"C:/projects/pdf/report"}')
-jobId=$(echo "$resp" | jq -r .jobId)
-curl -s "http://localhost:8080/api/report/${jobId}/detailed" > detailed.json
+  -d '{"bucketName":"pdf-tagging-data-381490270597","pdfPath":"input/sample.pdf","outputFolderPath":"reports"}')
+uri=$(echo "$resp" | jq -r .detailedReportS3Uri)
+# strip the s3:// scheme and split bucket / key
+key="${uri#s3://*/}"
+bucket=$(echo "$uri" | sed -E 's#^s3://([^/]+)/.*#\1#')
+aws s3 cp "s3://${bucket}/${key}" ./detailed.json
 ```
 
-**cURL — Docker with volume mount**
+**cURL — failure (missing bucket)**
 
 ```bash
 curl -X POST http://localhost:8080/api/validate \
   -H "Content-Type: application/json" \
-  -d '{"pdfPath":"/pdfs/sample.pdf","outputFolder":"/reports"}'
+  -d '{"pdfPath":"input/sample.pdf"}'
 ```
 
-**cURL — failure (missing file)**
-
-```bash
-curl -X POST http://localhost:8080/api/validate \
-  -H "Content-Type: application/json" \
-  -d '{"pdfPath":"/does-not-exist.pdf"}'
-```
-
-Returns `HTTP 500` with `{"sourceFileName":"does-not-exist.pdf","status":"failed"}` (other fields omitted via `@JsonInclude(NON_NULL)`).
+Returns `HTTP 400` with `{"status":"failed","message":"bucketName and pdfPath are required"}` (other fields omitted via `@JsonInclude(NON_NULL)`).
 
 ---
 
 ## Legacy CLI
 
-The pre-REST CLI entry point is still available:
+The pre-REST CLI entry point is still available as a thin wrapper around
+`ValidationService`:
 
 ```bash
 java -cp "target/classes;$(cat /tmp/cp.txt)" PDFValidator \
-  <path-to-pdf> [-o <output-folder>] [--legacy]
+  <s3-pdf-key> [-o <s3-output-folder>] [-b <bucket>]
 ```
 
-- `-o` accepts an output folder (or a full path — only the parent folder is used). When omitted, the reports are written next to the source PDF.
-- `--legacy` additionally writes the pre-PAC combined `<name>.report.json` alongside the two new files.
+- `<s3-pdf-key>` — S3 key of the source PDF (positional, required).
+- `-o` — S3 key prefix under the bucket where the reports are written; omitted means the bucket root.
+- `-b` — S3 bucket name. Defaults to `aod-main-v1-staging`.
 
-The CLI prints the `jobId`, `simpleReportPath`, and `detailedReportPath` on success.
+The CLI prints both S3 URIs and the `jobId` on success. AWS credentials come
+from the default provider chain — the same as the REST server.
 
 ---
 
 ## Report output
 
-Each run produces **two JSON files** side by side:
+Each run uploads **two JSON objects** side by side to
+`s3://{bucketName}/{outputFolderPath}/`:
 
 - `<pdf-basename>.simple.json` — hierarchical PAC-shaped tree (`{ body: { jobId, name, documentInformation, reports: [{type: "PDF/UA", uaIndex, report}, {type: "WCAG2CheckSet", report}], creationDate }, version }`). Every node carries PAC-canonical `checkId` + `caption` and counts (`errorCount / warningCount / passedCount / terminationCount`) plus severity (`Error=0 / Warning=1 / Passed=2 / Skipped=3`).
 - `<pdf-basename>.detailed.json` — flat, failure-only issue list per report type. Each issue has `checkId`, `issueId`, aggregate `count`, plus a `details[]` array of `{ pageIndex, rectangle: {top, bottom, left, right} }` — one per instance so a viewer can highlight the offending region. Also carries `cropBoxRanges` (contiguous same-CropBox pages coalesced) so `rectangle` coordinates map cleanly back to the page.
-
-Passing `--legacy` (CLI) additionally emits the pre-PAC combined
-`<pdf-basename>.report.json` with the older shape
-(`{ reports: { document, info, "PDF/UA", "WCAG", quality } }`).
 
 Full schema and semantics: [`docs/json-report-schema.md`](json-report-schema.md).
 
@@ -207,7 +195,8 @@ Standard Spring Boot properties apply. The most useful ones:
 | Property / env var | Default | Purpose |
 |---|---|---|
 | `SERVER_PORT` / `--server.port=` | `8080` | HTTP port. |
-| `JAVA_TOOL_OPTIONS` | `-XX:MaxRAMPercentage=75.0` (in Docker) | JVM tuning. Large PDFs are memory-hungry — the full finding list is held in memory until report write. |
+| `AWS_REGION` / `aws.region=` | `us-east-1` (in `application.properties`) | S3 client region. Must match the bucket region. |
+| `JAVA_TOOL_OPTIONS` | `-XX:MaxRAMPercentage=75.0` (in Docker) | JVM tuning. Large PDFs are memory-hungry — the full finding list is held in memory until report upload. |
 | `LOGGING_LEVEL_COM_NETRALABS` | `INFO` | Bump to `DEBUG` for per-rule tracing. |
 
 Example — run on port 9000 with more heap:
@@ -215,6 +204,7 @@ Example — run on port 9000 with more heap:
 ```bash
 JAVA_TOOL_OPTIONS="-Xmx2g" \
 SERVER_PORT=9000 \
+AWS_REGION=us-east-1 \
 java -jar target/pdf-validator-1.0-SNAPSHOT.jar
 ```
 
@@ -222,38 +212,71 @@ java -jar target/pdf-validator-1.0-SNAPSHOT.jar
 
 ## Deployment (EC2)
 
-1. Push the image to ECR:
+Current production deployment: `pdf-tagging-prod` (`i-02b30d9e5d1d74061`,
+`t3.medium`, us-east-1). Public IP `18.233.161.171`, port `8080` reachable
+only from the owner IP via SG `pdf-tagging-sg`. IAM role
+`pdf-tagging-ec2-role` grants `AmazonS3FullAccess` +
+`AmazonSSMManagedInstanceCore`.
+
+### Redeploying
+
+The build runs on the box itself (multi-stage `Dockerfile` bundles Maven).
+Source is staged in S3 rather than pushed to ECR — simpler for this scale.
+Shell access is via SSM Session Manager (no SSH key needed).
+
+1. **Package the working tree and stage it in S3:**
 
    ```bash
-   aws ecr get-login-password --region <region> | \
-     docker login --username AWS --password-stdin <acct>.dkr.ecr.<region>.amazonaws.com
-   docker tag pdf-validator:latest <acct>.dkr.ecr.<region>.amazonaws.com/pdf-validator:latest
-   docker push <acct>.dkr.ecr.<region>.amazonaws.com/pdf-validator:latest
+   tar --exclude=./target --exclude=./.git --exclude=./.idea \
+       -czf /tmp/pdf-pac-src.tar.gz .
+   aws s3 cp /tmp/pdf-pac-src.tar.gz \
+       s3://pdf-tagging-data-381490270597/build-artifacts/pdf-pac-src.tar.gz
    ```
 
-2. On the EC2 host (Docker installed):
+2. **Build + redeploy on the box** (via SSM `RunShellScript` or an
+   interactive `aws ssm start-session --target i-02b30d9e5d1d74061`):
 
    ```bash
-   docker pull <acct>.dkr.ecr.<region>.amazonaws.com/pdf-validator:latest
-   docker run -d --restart unless-stopped \
-     --name pdf-validator \
-     -p 8080:8080 \
-     -v /data/pdfs:/pdfs:ro \
-     -v /data/reports:/reports \
-     <acct>.dkr.ecr.<region>.amazonaws.com/pdf-validator:latest
+   sudo -u ec2-user bash -c '
+     set -euxo pipefail
+     mkdir -p /home/ec2-user/pdf-pac-validator
+     cd /home/ec2-user/pdf-pac-validator
+     rm -rf ./*
+     aws s3 cp s3://pdf-tagging-data-381490270597/build-artifacts/pdf-pac-src.tar.gz .
+     tar xzf pdf-pac-src.tar.gz
+   '
+   cd /home/ec2-user/pdf-pac-validator
+   docker build -t pdf-pac-validator:latest .
+   docker rm -f pdf-pac-validator 2>/dev/null || true
+   docker run -d --name pdf-pac-validator --restart unless-stopped \
+       -p 8080:8080 -e AWS_REGION=us-east-1 \
+       pdf-pac-validator:latest
    ```
 
-3. Open port **8080** in the instance security group (or place the instance
-   behind an ALB and target port 8080).
+3. **Smoke test** from a workstation whose IP is allowed by the SG:
 
-4. Recommended instance size: `t3.medium` or larger. Validation of a
-   ~1 MB PDF can produce an ~11 MB report and needs ~1 GB of heap for the
-   worst-case corpus we've seen.
+   ```bash
+   curl -X POST http://18.233.161.171:8080/api/validate \
+     -H "Content-Type: application/json" \
+     -d '{"bucketName":"pdf-tagging-data-381490270597","pdfPath":"input/sample.pdf","outputFolderPath":"reports"}'
+   ```
+
+### Networking / IAM invariants
+
+- Ports 22 and 8080 on `pdf-tagging-sg` are restricted to a single owner-IP
+  CIDR. Rotate the CIDR when the owner IP changes; do not open to `0.0.0.0/0`
+  without an auth layer in front (see path safety note below).
+- The `AmazonS3FullAccess` policy on `pdf-tagging-ec2-role` is broader than
+  strictly needed — the app only touches `pdf-tagging-data-381490270597`.
+  Tighten to a bucket-scoped policy when convenient.
+- Recommended instance size: `t3.medium` or larger. Validation of a
+  ~1 MB PDF can produce a ~10 MB detailed report and needs ~1 GB of heap
+  for the worst-case corpus we've seen.
 
 ### Path safety note
 
-`/api/validate` accepts arbitrary local filesystem paths. This is fine when the
-service is only reachable inside a trusted network (VPC, private subnet, or
-behind auth). Do **not** expose the endpoint publicly without adding an
-allow-list or authenticating the request — a caller could ask the service to
-read or overwrite any file the container user has access to.
+`/api/validate` accepts arbitrary S3 keys under a caller-supplied bucket.
+When the bucket is caller-controlled, the service will happily read and
+overwrite any object the instance profile has access to. Do **not** expose
+the endpoint publicly without adding an allow-list on `bucketName` or
+authenticating the request.
