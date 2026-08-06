@@ -1,0 +1,42 @@
+pdf-validator
+Copyright 2026 Bohdan Napadovskyi
+
+This product includes software developed by contributors listed in the
+git commit history.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+===============================================================================
+Runtime dependencies with different licenses
+===============================================================================
+
+This project's own source code is Apache-2.0 licensed. However, at runtime
+it links libraries under other licenses. Consumers should evaluate these
+transitively for their own compliance posture:
+
+iText Core (kernel, io, commons, layout, pdfua)
+    Copyright (C) iText Group NV
+    Licensed under the GNU Affero General Public License v3 (AGPL-3.0).
+    Applied via classpath link at runtime; embedding this library in a
+    network service triggers AGPL §13 source-availability obligations for
+    the whole aggregate. A commercial iText license removes the AGPL
+    obligation and is required for closed-source production distributions.
+    https://itextpdf.com/  https://github.com/itext/itext-java
+
+veraPDF (validation-model-jakarta, pdf-model)
+    Copyright (C) veraPDF Consortium
+    Dual-licensed under MPL 2.0 / GPL 3.0 with a "greenfield" (foundry)
+    build track. Consumers should verify the dual-license choice fits
+    their distribution model.
+    https://verapdf.org/
+
+Apache PDFBox (transitive through veraPDF)
+    Copyright (C) The Apache Software Foundation
+    Licensed under the Apache License, Version 2.0.
+    https://pdfbox.apache.org/
+
+Spring Boot, jackson-databind, slf4j-api, logback-classic, AWS SDK for S3
+    Marked as <optional> Maven dependencies. Consumers of the plain
+    library artifact do NOT inherit these transitively. The standalone
+    executable jar (with the ``exec`` classifier) does bundle them.
+    See their respective upstream projects for licensing.

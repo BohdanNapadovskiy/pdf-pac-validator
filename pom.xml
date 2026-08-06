@@ -10,6 +10,14 @@
   <name>pdf-validator</name>
   <url>http://maven.apache.org</url>
 
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.source>21</maven.compiler.source>
@@ -29,9 +37,16 @@
   </dependencyManagement>
 
   <dependencies>
+    <!-- Spring Boot is required only by the standalone REST service +
+         S3 orchestration layer. Marked <optional> so downstream
+         consumers of the plain library jar (com.netralabs.api.PdfValidator)
+         don't inherit ~50 MB of transitive Spring deps. The executable
+         jar (built via the spring-boot-maven-plugin exec classifier)
+         still bundles them via <includeSystemScope>. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
@@ -93,11 +108,14 @@
       <artifactId>pdf-model</artifactId>
       <version>1.28.2</version>
     </dependency>
+    <!-- AWS SDK — used only by S3FileService for the standalone flow.
+         Same rationale as spring-boot-starter-web above. -->
     <dependency>
-			<groupId>com.amazonaws</groupId>
-			<artifactId>aws-java-sdk-s3</artifactId>
-			<version>1.12.777</version>
-		</dependency>
+      <groupId>com.amazonaws</groupId>
+      <artifactId>aws-java-sdk-s3</artifactId>
+      <version>1.12.777</version>
+      <optional>true</optional>
+    </dependency>
   </dependencies>
 
   <build>
@@ -120,6 +138,13 @@
         <version>3.2.5</version>
         <configuration>
           <mainClass>com.netralabs.ValidatorApplication</mainClass>
+          <!-- Publish the plain library jar as the primary artifact so
+               downstream Maven / Gradle consumers can add this project
+               as a dep. The executable Spring Boot fat jar (BOOT-INF/
+               layout, un-consumable as a library) becomes the "-exec"
+               classifier — run it standalone via
+               `java -jar target/pdf-validator-<v>-exec.jar`. -->
+          <classifier>exec</classifier>
         </configuration>
         <executions>
           <execution>
