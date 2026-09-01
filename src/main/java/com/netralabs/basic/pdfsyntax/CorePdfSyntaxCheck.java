@@ -15,19 +15,26 @@ import static com.netralabs.domain.Severity.PASSED;
 /**
  * ISO 32000-1 §7.5 file structure sanity checks. PAC's "PDF syntax" tally is
  * one PASSED per validated skeleton object: Catalog, Pages tree root, every
- * Page dict, per-page /Resources (when present) and /Annots (when present),
- * and every struct element (via {@link StructUtils#walkStructure}).
+ * Page dict, per-page /Resources (when present) and /Annots (when present, on
+ * tagged docs only), and every struct element (via {@link StructUtils#walkStructure}).
  *
  * <p>Font dictionaries, FontDescriptors, Encodings and the trailer /Info dict
  * are intentionally NOT tallied here — PAC handles fonts via the "Font
  * embedding" row and treats /Info as a metadata concern; folding them in
  * over-counts on font-heavy documents.
+ *
+ * <p>On <b>untagged</b> docs (no {@code /StructTreeRoot} or {@code /MarkInfo/Marked=true}),
+ * /Annots arrays are not tallied — PAC treats the annotation collection as an
+ * accessibility concern that's meaningless without a struct tree. Verified on
+ * AoD Benchmark ("no tags", 7 pages with /Annots): PAC 34 = 1+1+16+16, our
+ * previous 41 over-counted the 7 annotated pages.
  */
 public class CorePdfSyntaxCheck implements Rule {
     @Override
     public List<FindingDTO> run(Context ctx) {
         PdfDocument pdf = ctx.pdf();
         List<FindingDTO> out = new ArrayList<>();
+        final boolean tagged = StructUtils.isTaggedPdf(pdf);
         PdfDictionary catalog = pdf.getCatalog() != null ? pdf.getCatalog().getPdfObject() : null;
 
         // Catalog
@@ -83,8 +90,8 @@ public class CorePdfSyntaxCheck implements Rule {
                 out.add(new FindingDTO(ERROR, PDF_SYNTAX, i, null, "Page /Resources is not a dictionary"));
             }
 
-            // Annots array, if present.
-            if (p.get(PdfName.Annots) != null) {
+            // Annots array, if present (skipped on untagged docs — PAC parity).
+            if (tagged && p.get(PdfName.Annots) != null) {
                 out.add(new FindingDTO(PASSED, PDF_SYNTAX, i, null));
             }
         }

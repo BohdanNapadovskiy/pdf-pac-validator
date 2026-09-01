@@ -399,8 +399,8 @@ public enum PDFUACheckpoint {
             "Annotations",
             "\"TrapNet\" annotations",
             "",
-            null,
-            null
+            ValidateAnnotationNesting::new,
+            Phase.DOCUMENT
     ),
     NESTING_WIDGET_ANNOTATIONS(
             "PDF/UA",

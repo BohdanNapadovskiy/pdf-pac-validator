@@ -9,6 +9,7 @@ import com.itextpdf.kernel.pdf.PdfName;
 import com.itextpdf.kernel.pdf.canvas.CanvasTag;
 import com.itextpdf.kernel.pdf.canvas.parser.data.TextRenderInfo;
 import com.netralabs.Rule;
+import com.netralabs.basic.pdfsyntax.StructUtils;
 import com.netralabs.domain.Severity;
 import com.netralabs.report.BBoxDTO;
 import com.netralabs.report.FindingDTO;
@@ -56,6 +57,7 @@ public class ValidateUnicodeMapping implements Rule {
     public List<FindingDTO> run(Context ctx) {
         List<FindingDTO> out = new ArrayList<>();
         PdfDocument pdf = ctx.pdf();
+        final boolean tagged = StructUtils.isTaggedPdf(pdf);
 
         for (int page = 1; page <= pdf.getNumberOfPages(); page++) {
             final int pageNum = page;
@@ -74,7 +76,10 @@ public class ValidateUnicodeMapping implements Rule {
                     // Artifact BDC carrying an explicit /Type property (Pagination,
                     // Page, Layout, Background — classified decorative artifacts).
                     // Artifact BDCs with /MCID and no /Type are still counted.
-                    if (isTypedArtifact(tri)) return;
+                    // On untagged docs the artifact classification is meaningless —
+                    // PAC counts every text-show uniformly (verified on AoD Benchmark
+                    // "no tags": PAC 8739 vs our previous typed-artifact-skip 7943 = +796).
+                    if (tagged && isTypedArtifact(tri)) return;
                     PdfFont font = tri.getFont();
                     if (font == null) return;
                     PdfDictionary fdict = font.getPdfObject();

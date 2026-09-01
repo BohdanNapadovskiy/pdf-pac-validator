@@ -92,6 +92,18 @@ public class ValidateAnnotationNesting implements Rule {
     private static void emitForAnnotation(PdfDictionary annot, PdfName subtype, int page,
                                           Map<Integer, PdfObject> parentTree, PdfDictionary roleMap,
                                           List<FindingDTO> out) {
+        // Per-annotation TrapNet check (ISO 14289-1 §7.18.2): no annotation may
+        // have subtype /TrapNet. PAC emits one finding per annotation to this
+        // checkpoint — PASSED if the subtype is anything else, ERROR if it is
+        // /TrapNet. Verified against AoD Benchmark (70 annots → 70P TrapNet).
+        if (PdfName.TrapNet.equals(subtype)) {
+            BBoxDTO bbox = ValidateStructuralParentTree.rectToBBox(annot.getAsArray(PdfName.Rect));
+            out.add(new FindingDTO(Severity.ERROR, PDFUACheckpoint.TRAP_NET_ANNOTATIONS, page, bbox,
+                    "Annotation of subtype \"TrapNet\" is not permitted"));
+        } else {
+            out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.TRAP_NET_ANNOTATIONS, page, null));
+        }
+
         PDFUACheckpoint cp;
         String requiredRole;
         if (PdfName.Widget.equals(subtype)) {

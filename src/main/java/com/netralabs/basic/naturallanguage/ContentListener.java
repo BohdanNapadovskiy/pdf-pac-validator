@@ -21,6 +21,7 @@ public class ContentListener  implements IEventListener {
     private final List<FindingDTO> out;
     private final int pageNum;
     private final String docLang;
+    private final boolean taggedPdf;
 
     private final Deque<String> langStack = new ArrayDeque<>();
     private final Deque<Boolean> langPushedStack = new ArrayDeque<>();
@@ -41,7 +42,11 @@ public class ContentListener  implements IEventListener {
     private boolean inBareRun = false;     // outside any BMC
 
     ContentListener(List<FindingDTO> out, int pageNum, String docLang) {
-        this.out = out; this.pageNum = pageNum; this.docLang = docLang;
+        this(out, pageNum, docLang, true);
+    }
+
+    ContentListener(List<FindingDTO> out, int pageNum, String docLang, boolean taggedPdf) {
+        this.out = out; this.pageNum = pageNum; this.docLang = docLang; this.taggedPdf = taggedPdf;
     }
     void beginMarked(String tag, PdfDictionary props) {
         markedDepth++;
@@ -97,7 +102,11 @@ public class ContentListener  implements IEventListener {
                 // Artifact BDC (an /Artifact with an explicit /Type property —
                 // Pagination / Page / Layout / Background). Complex has one such
                 // event on page 2 (page-number "4"); PAC excludes it.
-                if (!typedArtifactPushedStack.isEmpty() && Boolean.TRUE.equals(typedArtifactPushedStack.peek())) {
+                // On untagged docs, artifact-typing is meaningless — PAC counts every
+                // text-show uniformly. See ValidateUnicodeMapping for the same guard.
+                if (taggedPdf
+                        && !typedArtifactPushedStack.isEmpty()
+                        && Boolean.TRUE.equals(typedArtifactPushedStack.peek())) {
                     break;
                 }
                 emitFinding(resolveLang(), (TextRenderInfo) data);

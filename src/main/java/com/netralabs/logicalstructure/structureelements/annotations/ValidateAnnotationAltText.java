@@ -25,14 +25,17 @@ import static com.netralabs.domain.PDFUACheckpoint.ALTERNATIVE_DESCRIPTION_FOR_A
  * same to visually impaired users. The description lives in the annotation's
  * {@code /Contents} entry.
  *
- * <p>Emission policy — matches axesPDF PAC's {@code AnnotationHasAltText} row:
+ * <p>Emission policy — one finding per eligible annotation, matches axesPDF PAC
+ * 2026's {@code AnnotationHasAltText} row (verified against OP_AoD: 54 links
+ * with valid /Contents → 54 PASSED; AoD Benchmark: 54 links + other annotations
+ * → 68 PASSED at the Alt Descriptions level):
  * <ul>
  *   <li>PASSED — {@code /Contents} present and contains at least one non-whitespace char.</li>
+ *   <li>ERROR (issue {@code AnnotationHasAltText-ContentsIsMissing}) —
+ *       {@code /Contents} key is absent from the annotation dictionary.</li>
  *   <li>WARNING (issue {@code AnnotationHasAltText-ContentsIsWhiteSpace}) —
  *       {@code /Contents} present but the string is empty or whitespace-only.</li>
  * </ul>
- * Annotations without a {@code /Contents} key at all are ignored (a missing key
- * is covered by veraPDF's clause-specific checks, not PAC's whitespace warning).
  *
  * <p>Applies to annotation subtypes that require accessibility text: Link and any
  * markup-style annotation (Text, Highlight, Underline, Squiggly, StrikeOut, FreeText,
@@ -66,9 +69,14 @@ public class ValidateAnnotationAltText implements Rule {
                 if (!(o instanceof PdfDictionary annot)) continue;
                 PdfName subtype = annot.getAsName(PdfName.Subtype);
                 if (subtype == null || !COVERED_SUBTYPES.contains(subtype.getValue())) continue;
+                BBoxDTO bbox = ValidateStructuralParentTree.rectToBBox(annot.getAsArray(PdfName.Rect));
+                if (!annot.containsKey(PdfName.Contents)) {
+                    out.add(new FindingDTO(Severity.ERROR, ALTERNATIVE_DESCRIPTION_FOR_ANNOT, i, bbox,
+                            "Annotation is missing /Contents"));
+                    continue;
+                }
                 PdfString contents = annot.getAsString(PdfName.Contents);
                 String v = contents != null ? contents.getValue() : null;
-                BBoxDTO bbox = ValidateStructuralParentTree.rectToBBox(annot.getAsArray(PdfName.Rect));
                 if (isWhitespace(v)) {
                     out.add(new FindingDTO(Severity.WARNING, ALTERNATIVE_DESCRIPTION_FOR_ANNOT, i, bbox,
                             "Annotation contents is white space"));

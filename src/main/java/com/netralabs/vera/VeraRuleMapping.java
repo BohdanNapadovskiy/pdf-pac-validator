@@ -188,7 +188,10 @@ public final class VeraRuleMapping {
       Map.entry("PDAcroForm",           PDFUACheckpoint.ALTERNATIVE_NAMES_FORM_FIELDS),
       Map.entry("PDStructTreeRoot",     PDFUACheckpoint.LOGICAL_STRUCTURE_SYNTAX),
       Map.entry("PDStructElem",         PDFUACheckpoint.LOGICAL_STRUCTURE_SYNTAX),
-      Map.entry("CosDocument",          PDFUACheckpoint.DISPLAY_DOCUMENT_TITLE),
+      // "CosDocument" intentionally NOT mapped — DisplayDocTitleIdentifier
+      // (native) emits exactly one finding checking /DisplayDocTitle. Vera's
+      // UA-2 CosDocument-level tests are unrelated (file format / structural
+      // sanity) and over-emitted 2 extra passes on OP_AoD (PAC 1P, our 3P).
       // Structure elements
       Map.entry("SEDocument",           PDFUACheckpoint.DOCUMENT_STRUCTURE_ELEMENT),
       Map.entry("SEDocumentFragment",   PDFUACheckpoint.DOCUMENT_STRUCTURE_ELEMENT),
@@ -278,9 +281,10 @@ public final class VeraRuleMapping {
       Map.entry("CosTextString",        PDFUACheckpoint.NATURAL_LANGUAGE_TEXT_OBJECT),
       Map.entry("CosFileSpecification", PDFUACheckpoint.F_UF_FILE_SPECIFICATION),
       // Misc
-      Map.entry("PDPage",               PDFUACheckpoint.PDF_SYNTAX),
-      Map.entry("PDGoToAction",         PDFUACheckpoint.PDF_SYNTAX),
-      Map.entry("PDDestination",        PDFUACheckpoint.PDF_SYNTAX),
+      // "PDPage" / "PDGoToAction" / "PDDestination" intentionally NOT mapped to
+      // PDF_SYNTAX — CorePdfSyntaxCheck (native) already tallies the skeleton
+      // objects PAC counts. Vera's UA-2 object-level passes on these types
+      // over-emitted 3 extra passes on OP_AoD (PAC 978P, our 986P).
       Map.entry("PDOCConfig",           PDFUACheckpoint.NAME_ENTRY_OCCD)
   );
 

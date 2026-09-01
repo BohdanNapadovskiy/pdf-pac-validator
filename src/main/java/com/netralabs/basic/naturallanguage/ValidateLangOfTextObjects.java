@@ -4,6 +4,7 @@ import com.itextpdf.kernel.pdf.*;
 import com.itextpdf.kernel.pdf.canvas.parser.PdfCanvasProcessor;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
+import com.netralabs.basic.pdfsyntax.StructUtils;
 
 import com.netralabs.report.FindingDTO;
 
@@ -21,9 +22,10 @@ public class ValidateLangOfTextObjects implements Rule {
         List<FindingDTO> out = new ArrayList<>();
         PdfDocument pdf = ctx.pdf();
         final String docLang = docLang(pdf);
+        final boolean tagged = StructUtils.isTaggedPdf(pdf);
         for (int pageNum = 1; pageNum <= pdf.getNumberOfPages(); pageNum++) {
             PdfPage page = pdf.getPage(pageNum);
-            ContentListener listener = new ContentListener(out, pageNum, docLang);
+            ContentListener listener = new ContentListener(out, pageNum, docLang, tagged);
             PdfCanvasProcessor proc = new PdfCanvasProcessor(listener);
             proc.registerContentOperator("BMC", (p, op, operands) -> {
                 String tag = operands.get(0).toString().replace("/", "");
