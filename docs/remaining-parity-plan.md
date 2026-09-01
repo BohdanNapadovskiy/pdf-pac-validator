@@ -1,5 +1,53 @@
 # Remaining PAC-parity gaps — fix plan
 
+## Update 2026-08-11 — post-per-glyph batch fix
+
+New corpus of 23 PDFs (`batch-21-nostrip.txt`); PAC screenshots available for
+6 files. Applied fixes:
+
+- **IccBased handling** in `ValidateContrastOfText.toRgb()` — Metro contrast
+  went from 0 findings to 15361 P / 4382 E (previously the color-space branch
+  returned null and dropped every glyph).
+- **Full ICC profile decoding** via `java.awt.color.ICC_ColorSpace`
+  (`iccBasedThroughProfile`) — verified on Metro's 24006 IccBased events;
+  transform succeeded on all, and produced values identical to the raw-as-sRGB
+  heuristic in every case (Metro's ICC profiles are effectively sRGB). Kept
+  for correctness on future PDFs with AdobeRGB / device-specific profiles.
+- **Per-glyph emission** as new default (`PER_GLYPH_MAX_BATCH = MAX_VALUE`,
+  override with `-Dpac.contrast.perGlyphMax=<int>`) — small text-shows emit
+  one finding per glyph with its own bbox and background lookup. Fisheries
+  now lands **exact** on 1.4.3 (7974 P / 0 E); Metro/CalSAWS/375 land within
+  ~10% on passes. Sum-of-absolute-deltas across the 5 files with PAC data:
+  ~16.6k → ~3.8k.
+- **Vera severity classifications** — added `7.2-17`/`7.2-20` (LI) and
+  `7.2-26` (TOCI) to `WARNING_RULES`; unmapped `7.18.1-2` (AltDesc doubled
+  as W+E on Metro; native `ValidateAnnotationAltText` owns the checkpoint).
+  Metro Structure tree W: 0 → 30 (vs PAC 32); Metro AltDesc E: 2077 → 2
+  (exact match).
+
+Post-fix 1.4.3 deltas (Ours - PAC):
+
+| PDF | dP | dE |
+|---|---:|---:|
+| Assessor (untagged) | 0 | 0 |
+| Fisheries (untagged) | 0 | 0 |
+| 375-0715 | -98 | -1 |
+| CalSAWS | +494 | -145 |
+| Metro | +765 | +2288 |
+
+Remaining gaps are **background-detection quality**, not color-space encoding
+or emission granularity — ICC transform proved identical to heuristic; per-
+glyph unlock already applied. Root cause is the `covers()` (bbox-contains)
+paint-log query missing paints that partially overlap text — direction of
+the miss depends on file (over-error on Metro, under-error on CalSAWS).
+Candidate next fix: switch `covers()` → `intersects()` with dominant-paint
+tiebreak. High risk of regression on files where strict `covers()` currently
+helps; needs corpus-wide verification.
+
+Historical analysis of the pre-per-glyph era follows.
+
+---
+
 Status snapshot after the `fix/wcag-parity` branch (9 commits on top of the
 `fix/pac-parity-batch` merge):
 

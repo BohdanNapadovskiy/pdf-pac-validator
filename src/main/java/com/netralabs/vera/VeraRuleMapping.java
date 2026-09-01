@@ -23,7 +23,15 @@ public final class VeraRuleMapping {
    * severity wrong".
    */
   private static final Set<String> WARNING_RULES = Set.of(
-      P + "7.2-6"   // TBody container
+      P + "7.2-6",   // TBody container
+      // Lists (LI structural expectations) — PAC surfaces these as warnings, not errors.
+      // On Metro, 15 vera failures on LITag showed as ERROR while PAC showed WARNING;
+      // adding both clauses so LI-related vera failures roll up to W in the report.
+      P + "7.2-17",
+      P + "7.2-20",
+      // TOC / TOCI (7.2-26): same treatment — 15 TOCI vera failures on Metro were
+      // ERROR-classified by us but PAC surfaces them as WARNING.
+      P + "7.2-26"
       // 7.2-15 / 7.2-41 / 7.2-42 / 7.2-43 handled natively (see UA1_MAP note).
   );
 
@@ -79,8 +87,13 @@ public final class VeraRuleMapping {
       // 7.1-5 ("non-standard type is neither mapped nor a valid PDF/UA type") is
       // handled natively by RoleMapValidatorRule, which emits one ERROR per offending
       // struct element (matching PAC). Vera's per-doc aggregate would double-count.
+      // 7.1-7 ("standard tags shall not be remapped") is intentionally NOT mapped —
+      // vera over-fires per struct element on Metro-Planners-Handbook (17E vs PAC 1E),
+      // apparently attributing the error to every SE affected by a standard-type
+      // remapping rather than to the offending RoleMap entry. Native
+      // RoleMapValidatorRule emits per-RoleMap-entry findings with PAC-compatible
+      // granularity for this checkpoint.
       Map.entry(P + "7.1-6",   PDFUACheckpoint.CIRCULAR_ROLE_MAPPING),
-      Map.entry(P + "7.1-7",   PDFUACheckpoint.ROLE_MAPPING_FOR_STANDARD_STRUCTURE),
 
       // Tables — structure tree leaves
       Map.entry(P + "7.2-3",   PDFUACheckpoint.TABLE_STRUCTURE_ELEMENTS),
@@ -131,7 +144,10 @@ public final class VeraRuleMapping {
       // checks StructParent → ParentTree → ancestor-role for the required
       // wrapper (Form / Link / Annot). Vera's mapping over-counts on some
       // documents (e.g. 146 vs PAC's 90 widget errors on a scanned form).
-      Map.entry(P + "7.18.1-2", PDFUACheckpoint.ALTERNATIVE_DESCRIPTION_FOR_ANNOT),
+      // 7.18.1-2 (annotation Contents alt text) is handled natively by
+      // ValidateAnnotationAltText, which emits WARNING for whitespace-only
+      // /Contents — matching PAC. Vera fires ERROR on the same annotations,
+      // which double-counted the warning as an error on Metro (E: 2077 vs PAC 2).
       // 7.18.1-3 ("form fields shall have TU or widget alt descriptions") is handled
       // natively by ValidateFormFieldAltNames — vera's pass-2 assertion cap silently
       // dropped tail-end field passes on multi-field forms (15/31 on Filled_Graduate).

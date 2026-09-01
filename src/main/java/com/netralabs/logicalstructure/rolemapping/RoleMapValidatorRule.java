@@ -45,7 +45,10 @@ public class RoleMapValidatorRule implements Rule {
             "L", "LI", "Lbl", "LBody", "Table", "TR", "TH", "TD", "THead", "TBody", "TFoot",
             "Figure", "Caption", "Formula", "Link", "Note", "Annot", "Span", "Quote", "Code",
             "Reference", "BibEntry", "Ruby", "RB", "RT", "RP", "Warichu", "WP", "WT",
-            "Form", "BlockQuote", "TOC", "TOCI", "Index", "Private"
+            "Form", "BlockQuote", "TOC", "TOCI", "Index", "Private",
+            // ISO 32000-2 (PDF 2.0) / ISO 14289-2 additions.
+            "DocumentFragment", "Aside", "NonStruct", "Title", "FENote",
+            "Sub", "Sup", "Em", "Strong", "Artifact"
     );
 
     private static volatile PdfDocument done;

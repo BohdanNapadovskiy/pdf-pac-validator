@@ -5,6 +5,7 @@ import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceCmyk;
 import com.itextpdf.kernel.colors.DeviceGray;
 import com.itextpdf.kernel.colors.DeviceRgb;
+import com.itextpdf.kernel.colors.IccBased;
 import com.itextpdf.kernel.geom.LineSegment;
 import com.itextpdf.kernel.geom.Matrix;
 import com.itextpdf.kernel.geom.Point;
@@ -12,6 +13,7 @@ import com.itextpdf.kernel.geom.Subpath;
 import com.itextpdf.kernel.geom.Vector;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfName;
+import com.itextpdf.kernel.pdf.PdfStream;
 import com.itextpdf.kernel.pdf.canvas.CanvasTag;
 import com.itextpdf.kernel.pdf.canvas.parser.EventType;
 import com.itextpdf.kernel.pdf.canvas.parser.IContentOperator;
@@ -21,11 +23,15 @@ import com.itextpdf.kernel.pdf.canvas.parser.data.ImageRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.data.PathRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.data.TextRenderInfo;
 import com.itextpdf.kernel.pdf.canvas.parser.listener.IEventListener;
+import com.itextpdf.kernel.pdf.colorspace.PdfCieBasedCs;
 import com.itextpdf.kernel.pdf.xobject.PdfImageXObject;
 
+import java.awt.color.ICC_ColorSpace;
+import java.awt.color.ICC_Profile;
 import java.awt.image.BufferedImage;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.WeakHashMap;
 import com.netralabs.Rule;
 import com.netralabs.basic.content.Context;
 import com.netralabs.domain.PDFUACheckpoint;
@@ -81,6 +87,25 @@ public class ValidateContrastOfText implements Rule {
 
     /** Content-stream text-showing operators that produce visible glyphs. */
     private static final String[] TEXT_SHOWING_OPS = {"Tj", "TJ", "'", "\""};
+
+    /**
+     * Threshold for the emission-granularity heuristic. Tj/TJ invocations that
+     * fire at most this many qualifying RENDER_TEXT events emit one finding per
+     * glyph; longer ones fall back to a single union-bbox finding.
+     *
+     * <p>Default {@code Integer.MAX_VALUE} — always emit per-glyph. Verified against
+     * PAC on the current corpus: fisheries matches exactly (7974 P, 0 E), Metro
+     * moves from 6513 → 15361 P (vs PAC 14596), CalSAWS moves from 9097 → 11553 P
+     * (vs PAC 11059), 375 moves from 519 → 1135 P (vs PAC 1233). Sum of absolute
+     * deltas across the corpus: ~16.6k → ~3.8k.
+     *
+     * <p>Overridable via {@code -Dpac.contrast.perGlyphMax=<int>} — lower values
+     * batch longer text-shows into a single union-bbox finding, which historically
+     * matched PAC on typewriter-style PDFs (OP_AoD) where whole words came through
+     * as a single Tj. Retain the knob in case a future corpus needs it.
+     */
+    private static final int PER_GLYPH_MAX_BATCH =
+            Integer.getInteger("pac.contrast.perGlyphMax", Integer.MAX_VALUE);
 
     /**
      * PAC compatibility mode. When {@code true}, background detection is disabled
@@ -360,30 +385,65 @@ public class ValidateContrastOfText implements Rule {
          * — the metadata for the pass/fail decision comes from the first glyph
          * that isn't filtered out; the geometry is the union of all glyph bboxes.
          */
+        /**
+         * Per-Tj emission with a size-based granularity switch. Short text-shows
+         * (≤ {@link #PER_GLYPH_MAX_BATCH} glyphs) emit one finding per qualifying
+         * glyph — matches PAC on Metro/CalSAWS where PAC's tally sits close to the
+         * total glyph count. Long text-shows (whole words / phrases via a single
+         * Tj/TJ) emit one union-bbox finding — matches PAC on OP_AoD/fisheries
+         * where PAC aggregates at the Tj level (9382→2199 events, ~4.3 glyphs/op).
+         *
+         * <p>Rationale: PAC's granularity is document-dependent but well
+         * correlated with the average glyphs-per-Tj ratio. A per-Tj threshold
+         * approximates the doc-level heuristic without requiring a second pass.
+         */
         private void emitFinding(List<GlyphEvent> glyphs) {
+            // First: aggregate for the artifact/tinyBbox/widget pre-checks and
+            // to derive the union bbox / representative probe (used in batch mode
+            // and by the artifact/widget filters).
             GlyphEvent probe = null;
             double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY;
             double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+            int qualifying = 0;
             for (GlyphEvent g : glyphs) {
                 if (g.renderMode == 3) continue;
                 if (g.typedArtifact) return;    // whole operator dropped — matches PAC
                 if (g.fillRgb == null) continue;
                 if (probe == null) probe = g;
                 if (g.bbox == null) continue;
+                if (g.bbox[2] - g.bbox[0] < 0.5 || g.bbox[3] - g.bbox[1] < 0.5) continue;
+                qualifying++;
                 if (g.bbox[0] < minX) minX = g.bbox[0];
                 if (g.bbox[1] < minY) minY = g.bbox[1];
                 if (g.bbox[2] > maxX) maxX = g.bbox[2];
                 if (g.bbox[3] > maxY) maxY = g.bbox[3];
             }
-            if (probe == null || minX == Double.POSITIVE_INFINITY) return;
-            // Skip degenerate bboxes — zero-area, negative-position, or negligible
-            // size text-shows. iText fires RENDER_TEXT for character-position markers
-            // and empty strings which PAC filters out of the 1.4.3 tally.
-            if (maxX - minX < 0.5 || maxY - minY < 0.5) return;
+            if (probe == null || qualifying == 0) return;
 
-            double[] fillRgb = probe.fillRgb;
+            // Short text-shows: emit one finding per qualifying glyph. Each glyph
+            // gets its own bbox, fill, and background lookup.
+            if (qualifying <= PER_GLYPH_MAX_BATCH) {
+                for (GlyphEvent g : glyphs) {
+                    if (g.renderMode == 3) continue;
+                    if (g.fillRgb == null || g.bbox == null) continue;
+                    if (g.bbox[2] - g.bbox[0] < 0.5 || g.bbox[3] - g.bbox[1] < 0.5) continue;
+                    emitOne(g, g.bbox, g.fillRgb);
+                }
+                return;
+            }
+
+            // Batched text-show: single union-bbox check, matching legacy behaviour.
             double[] textBox = {minX, minY, maxX, maxY};
+            emitOne(probe, textBox, probe.fillRgb);
+        }
 
+        /**
+         * Emit one finding for a single glyph or a Tj batch. {@code textBox} is the
+         * bbox used for widget/artifact/bg lookup and (on failure) for the report
+         * rectangle. {@code fillRgb} is the text colour to measure against the
+         * looked-up background.
+         */
+        private void emitOne(GlyphEvent probe, double[] textBox, double[] fillRgb) {
             // Skip text painted inside a Widget annotation's /Rect — the viewer
             // draws the widget's own appearance-stream text at the same location,
             // so any content-stream fallback text there is a duplicate.
@@ -404,14 +464,6 @@ public class ValidateContrastOfText implements Rule {
             //  (b) it sits on a dark filled-path banner (L < 0.15), or
             //  (c) the whole page has no paint at all AND the text is inside a
             //      real struct tag (Span/P/etc.), not just an /Artifact scope.
-            // Non-pure-white text is passed. Pure-white text on a non-dark covering
-            // paint (e.g. a green status pill) is also passed. Text rendered in an
-            // unembedded Standard-14 font (bare "Helvetica", "Times-Roman", etc.)
-            // is excluded — PAC treats these as page-chrome (footers, rotated
-            // watermarks) that don't contribute to the content-contrast tally.
-            // Artifact-scoped text on an empty-paint-log page is also excluded:
-            // PAC treats decorative artifact headings (e.g. "GENERAL INSTRUCTIONS"
-            // in a form) as non-content even when their fill is pure white.
             boolean chrome = isPureWhite(fillRgb) && isStandard14Base(probe.fontName);
             boolean emptyLog = paintLog.isEmpty() && !probe.anyArtifact;
             boolean keepAsError = isPureWhite(fillRgb) && !chrome
@@ -425,8 +477,8 @@ public class ValidateContrastOfText implements Rule {
                 out.add(new FindingDTO(Severity.PASSED, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, null));
             } else {
                 BBoxDTO bbox = new BBoxDTO(
-                        (float) maxY, (float) minX,
-                        (float) (maxY - minY), (float) (maxX - minX));
+                        (float) textBox[3], (float) textBox[0],
+                        (float) (textBox[3] - textBox[1]), (float) (textBox[2] - textBox[0]));
                 out.add(new FindingDTO(Severity.ERROR, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, bbox,
                         String.format("Text contrast %.2f:1 is below WCAG minimum %.1f:1", ratio, threshold)));
             }
@@ -694,8 +746,11 @@ public class ValidateContrastOfText implements Rule {
 
     /**
      * Convert an iText {@link Color} to a linear RGB triple in [0, 1]. Handles
-     * DeviceGray / DeviceRGB / DeviceCMYK. Returns null for color spaces we can't
-     * safely map (Separation, DeviceN, ICCBased with unusual profiles).
+     * DeviceGray / DeviceRGB / DeviceCMYK, and treats {@link IccBased} colours by
+     * their component count (1→Gray, 3→RGB, 4→CMYK) — the raw values already sit
+     * in [0, 1] and ICC profiles for text are almost always sRGB-family wrappers,
+     * so the approximation is close enough for a WCAG contrast tally. Returns null
+     * for Separation / DeviceN / Pattern / Lab / Indexed.
      */
     private static double[] toRgb(Color c) {
         if (c instanceof DeviceRgb) {
@@ -708,17 +763,86 @@ public class ValidateContrastOfText implements Rule {
             return new double[]{x, x, x};
         }
         if (c instanceof DeviceCmyk) {
+            return cmykToRgb(c.getColorValue());
+        }
+        if (c instanceof IccBased) {
             float[] v = c.getColorValue();
-            double C = clamp01(v[0]);
-            double M = clamp01(v[1]);
-            double Y = clamp01(v[2]);
-            double K = clamp01(v[3]);
-            // Naive CMYK -> RGB conversion (assumes uncalibrated CMYK).
-            return new double[]{(1 - C) * (1 - K), (1 - M) * (1 - K), (1 - Y) * (1 - K)};
+            if (v == null) return null;
+            // First: try to transform via the actual ICC profile. Falls back to the
+            // component-count heuristic if the profile is missing, unparseable, or
+            // Java's ICC engine rejects it (rare but happens on malformed profiles).
+            double[] transformed = iccBasedThroughProfile((IccBased) c, v);
+            if (transformed != null) return transformed;
+            if (v.length == 1) {
+                double x = clamp01(v[0]);
+                return new double[]{x, x, x};
+            }
+            if (v.length == 3) {
+                return new double[]{clamp01(v[0]), clamp01(v[1]), clamp01(v[2])};
+            }
+            if (v.length == 4) return cmykToRgb(v);
+            return null;
         }
         if (c == ColorConstants.BLACK) return new double[]{0, 0, 0};
         if (c == ColorConstants.WHITE) return new double[]{1, 1, 1};
         return null;
+    }
+
+    /** Naive uncalibrated-CMYK to RGB. */
+    private static double[] cmykToRgb(float[] v) {
+        double C = clamp01(v[0]);
+        double M = clamp01(v[1]);
+        double Y = clamp01(v[2]);
+        double K = clamp01(v[3]);
+        return new double[]{(1 - C) * (1 - K), (1 - M) * (1 - K), (1 - Y) * (1 - K)};
+    }
+
+    /** Cache of {@link ICC_ColorSpace} instances keyed by the underlying PDF profile
+     *  stream. Parsing an ICC profile and constructing the ColorSpace is expensive
+     *  and every glyph on a page can share the same profile. WeakHashMap keeps the
+     *  cache from pinning documents in memory after they close. */
+    private static final Map<PdfStream, ICC_ColorSpace> ICC_CACHE =
+            java.util.Collections.synchronizedMap(new WeakHashMap<>());
+    /** Sentinel — we cache profile-load failures too to avoid retrying on every glyph. */
+    private static final ICC_ColorSpace ICC_FAILED = new ICC_ColorSpace(
+            ICC_Profile.getInstance(java.awt.color.ColorSpace.CS_sRGB));
+
+    /**
+     * Try to transform an {@link IccBased} colour's raw channel values through the
+     * embedded ICC profile using Java's {@link ICC_ColorSpace}. Returns a gamma-
+     * encoded sRGB triple in [0, 1] on success (the downstream {@code channelLuminance}
+     * applies the sRGB→linear step), or {@code null} on any failure — caller should
+     * fall back to the component-count heuristic.
+     *
+     * <p>An {@code ICCBased} colour space in PDF is encoded as a two-element array
+     * {@code [/ICCBased <<...profile stream>>]}. We reach the profile stream via
+     * the wrapped {@code PdfArray} because iText 9.1 doesn't expose an instance
+     * getter (the similarly-named {@code getIccProfileStream} is a static factory).
+     */
+    private static double[] iccBasedThroughProfile(IccBased c, float[] raw) {
+        try {
+            if (!(c.getColorSpace() instanceof PdfCieBasedCs.IccBased iccCs)) return null;
+            com.itextpdf.kernel.pdf.PdfObject wrapped = iccCs.getPdfObject();
+            if (!(wrapped instanceof com.itextpdf.kernel.pdf.PdfArray arr) || arr.size() < 2) return null;
+            PdfStream profileStream = arr.getAsStream(1);
+            if (profileStream == null) return null;
+            ICC_ColorSpace cs = ICC_CACHE.computeIfAbsent(profileStream, ps -> {
+                try {
+                    byte[] bytes = ps.getBytes();
+                    if (bytes == null || bytes.length == 0) return ICC_FAILED;
+                    return new ICC_ColorSpace(ICC_Profile.getInstance(bytes));
+                } catch (Exception | Error e) {
+                    return ICC_FAILED;
+                }
+            });
+            if (cs == ICC_FAILED) return null;
+            if (cs.getNumComponents() != raw.length) return null;
+            float[] srgb = cs.toRGB(raw);
+            if (srgb == null || srgb.length < 3) return null;
+            return new double[]{clamp01(srgb[0]), clamp01(srgb[1]), clamp01(srgb[2])};
+        } catch (Exception | Error e) {
+            return null;
+        }
     }
 
     private static double clamp01(double x) {
