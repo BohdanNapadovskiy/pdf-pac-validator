@@ -130,7 +130,10 @@ public class ValidateContrastOfText implements Rule {
     /** Minimum intersection-area-over-text-area ratio for a paint to qualify as
      *  the dominant background under {@code intersects} mode. 0.5 = paint must
      *  cover at least half the text bbox. Chosen to filter out grazing rectangles
-     *  that clip only the descender/ascender of a glyph. */
+     *  that clip only the descender/ascender of a glyph. Empirically tested
+     *  0.5-0.9 on the corpus (2026-09-02): all values give identical results
+     *  because covering paints on the corpus either cover >90% or don't overlap
+     *  significantly — no useful tuning window between the endpoints. */
     private static final double INTERSECT_DOMINANCE = 0.5;
 
     /**
