@@ -134,6 +134,21 @@ public class ValidateContrastOfText implements Rule {
     private static final double INTERSECT_DOMINANCE = 0.5;
 
     /**
+     * Skip text whose innermost marked-content tag is any {@code /Artifact} BDC
+     * (typed or untyped). PAC treats all Artifact-scoped text as decorative for
+     * 1.4.3 — the user isn't expected to read it, so contrast doesn't apply.
+     * Discovered 2026-09-02 via corpus diagnostic: on OP_AoD the current
+     * typed-only filter counts 8190 bare {@code Artifact BMC ... EMC} events;
+     * dropping them lands total = 1247 vs PAC 1246 (Δ=1). Sum-of-|Δ| across
+     * the 8-file corpus drops ~9637 → ~1500.
+     *
+     * <p>Disable via {@code -Dpac.contrast.skipUntypedArtifacts=false} to
+     * restore the previous typed-only behaviour. Default on.
+     */
+    private static final boolean SKIP_UNTYPED_ARTIFACTS = Boolean.parseBoolean(
+            System.getProperty("pac.contrast.skipUntypedArtifacts", "true"));
+
+    /**
      * PAC compatibility mode. When {@code true}, background detection is disabled
      * and every text-show is measured against pure white ({@code rgb(1,1,1)}).
      * <p>
@@ -454,6 +469,7 @@ public class ValidateContrastOfText implements Rule {
             for (GlyphEvent g : glyphs) {
                 if (g.renderMode == 3) continue;
                 if (g.typedArtifact) return;    // whole operator dropped — matches PAC
+                if (SKIP_UNTYPED_ARTIFACTS && g.anyArtifact) return;   // PAC drops all Artifact-scoped
                 if (g.fillRgb == null) continue;
                 if (probe == null) probe = g;
                 if (g.bbox == null) continue;
