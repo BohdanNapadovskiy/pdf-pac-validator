@@ -804,16 +804,21 @@ public class ValidateContrastOfText implements Rule {
                 && innermost.getProperties().get(PdfName.Type) != null;
     }
 
-    /** True iff the innermost marked-content tag is any {@code /Artifact} BDC
-     *  (typed or untyped). Used only under PAC compat mode: on empty-paint-log
-     *  pages, PAC skips artifact-scoped text (decorative content) and only
-     *  flags struct-tagged content — e.g. text inside {@code <Span>}, {@code <P>}. */
+    /** True iff any tag in the marked-content chain is an {@code /Artifact} BDC
+     *  (typed or untyped). Per ISO 14289 semantics, content inside an
+     *  {@code /Artifact} scope is decorative regardless of nested tags
+     *  underneath — e.g. {@code <Artifact><Span>Tj</Span></Artifact>} makes
+     *  the text an artifact even though its innermost tag is {@code Span}.
+     *  Used to drop artifact-scoped text from the 1.4.3 contrast tally and
+     *  to gate the PAC-compat empty-page white-on-white handling. */
     private static boolean isAnyArtifact(TextRenderInfo tri) {
         List<CanvasTag> h = tri.getCanvasTagHierarchy();
         if (h == null || h.isEmpty()) return false;
-        CanvasTag innermost = h.get(h.size() - 1);
-        PdfName role = innermost.getRole();
-        return role != null && "Artifact".equals(role.getValue());
+        for (CanvasTag t : h) {
+            PdfName role = t.getRole();
+            if (role != null && "Artifact".equals(role.getValue())) return true;
+        }
+        return false;
     }
 
     /**
