@@ -28,13 +28,14 @@ import static com.netralabs.domain.PDFUACheckpoint.ALTERNATIVE_DESCRIPTION_FOR_A
  * <p>Emission policy — one finding per eligible annotation, matches axesPDF PAC
  * 2026's {@code AnnotationHasAltText} row (verified against OP_AoD: 54 links
  * with valid /Contents → 54 PASSED; AoD Benchmark: 54 links + other annotations
- * → 68 PASSED at the Alt Descriptions level):
+ * → 68 PASSED at the Alt Descriptions level; Filled_Graduate: 4 widget-adjacent
+ * link annotations without /Contents → 4 WARNING):
  * <ul>
  *   <li>PASSED — {@code /Contents} present and contains at least one non-whitespace char.</li>
- *   <li>ERROR (issue {@code AnnotationHasAltText-ContentsIsMissing}) —
- *       {@code /Contents} key is absent from the annotation dictionary.</li>
  *   <li>WARNING (issue {@code AnnotationHasAltText-ContentsIsWhiteSpace}) —
- *       {@code /Contents} present but the string is empty or whitespace-only.</li>
+ *       {@code /Contents} absent, empty, or whitespace-only. PAC 2026 does not
+ *       distinguish the two cases on this row; both roll up under the same
+ *       "white space" issue code as WARNING.</li>
  * </ul>
  *
  * <p>Applies to annotation subtypes that require accessibility text: Link and any
@@ -71,8 +72,8 @@ public class ValidateAnnotationAltText implements Rule {
                 if (subtype == null || !COVERED_SUBTYPES.contains(subtype.getValue())) continue;
                 BBoxDTO bbox = ValidateStructuralParentTree.rectToBBox(annot.getAsArray(PdfName.Rect));
                 if (!annot.containsKey(PdfName.Contents)) {
-                    out.add(new FindingDTO(Severity.ERROR, ALTERNATIVE_DESCRIPTION_FOR_ANNOT, i, bbox,
-                            "Annotation is missing /Contents"));
+                    out.add(new FindingDTO(Severity.WARNING, ALTERNATIVE_DESCRIPTION_FOR_ANNOT, i, bbox,
+                            "Annotation contents is white space"));
                     continue;
                 }
                 PdfString contents = annot.getAsString(PdfName.Contents);

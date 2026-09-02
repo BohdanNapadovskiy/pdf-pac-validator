@@ -34,11 +34,13 @@ import static com.netralabs.domain.PDFUACheckpoint.TAGGED_CONTENT_INSIDE_ARTIFAC
  *
  * <p>Emission is driven by the struct tree, not the content stream: enumerate
  * every unique {@code (page, MCID)} pair referenced from the tree (once each),
- * then during content-stream traversal check whether that MCID's BDC frame has
- * an Artifact ancestor. Each tree-referenced MCID contributes one finding:
- * PASSED when its BDC is at the top level, ERROR when nested inside an Artifact
- * BMC/BDC. Verified: Filled 111P/1E, Complex 320P/0E, CalSAWS 1P/0E — matches
- * PAC exactly.
+ * then during content-stream traversal check whether that MCID sits inside an
+ * Artifact scope. "Inside" includes the MCID's own frame — a BDC tagged
+ * {@code /Artifact} that carries an {@code /MCID} property is a structural
+ * hybrid PAC counts as tagged-content-in-artifact (e.g. Filled_Graduate p1
+ * MCID 122). Each tree-referenced MCID contributes one finding:
+ * PASSED when neither self nor ancestor is Artifact, ERROR otherwise.
+ * Verified: Filled 111P/1E, Complex 320P/0E, CalSAWS 1P/0E — matches PAC exactly.
  *
  * <p>Previous ContentWalker-based implementation missed empty MCID BDCs (no
  * paint inside); direct BDC counting over-counted (152 vs PAC 111) because same
@@ -90,7 +92,9 @@ public class ValidateTaggedInsideArtifacts implements Rule {
             }
             frames.enter(tag, mcid);
             if (mcid != null && pageTreeRefs.contains(mcid) && recorded.add(mcid)) {
-                boolean inArtifact = frames.hasArtifactAncestor();
+                // "Inside an artifact" = the MCID's own BDC is /Artifact-tagged
+                // (structural hybrid) OR any ancestor scope is /Artifact.
+                boolean inArtifact = ARTIFACT.equals(tag) || frames.hasArtifactAncestor();
                 if (inArtifact) {
                     out.add(new FindingDTO(Severity.ERROR, TAGGED_CONTENT_INSIDE_ARTIFACT, page, null,
                             "Tagged content is nested inside an artifact"));
