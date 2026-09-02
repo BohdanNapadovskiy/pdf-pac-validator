@@ -379,17 +379,20 @@ public enum WCAGCriterion {
             "\"Formula\" structure elements", PDFUACheckpoint.FORMULA_STRUCTURE_ELEMENTS),
     R_4_1_1_FIGURE("4 Robust", "4.1 Compatible", "4.1.1 Parsing",
             "\"Figure\" structure elements", PDFUACheckpoint.FIGURE_STRUCTURE_ELEMENTS),
-    // 4.1.1 Annotation-nesting leaves. PAC's Widget-nesting row on WCAG shows errors
-    // only (unlike PDF/UA Structure Elements > Annotations aggregate which counts
-    // native per-annotation passes) — 31P/31E on PDF/UA becomes 0P/31E on WCAG.
+    // 4.1.1 Annotation-nesting leaves. On WCAG PAC shows errors only for all three
+    // annotation-nesting rows (Widget, Link, Annot) — the PDF/UA "Structure Elements >
+    // Annotations" aggregate counts native per-annotation passes, but WCAG 4.1.1 hides
+    // them. Verified 2026-09-02 on OP_AoD (+1931 P) and Filled_Graduate (+404 P).
     // The `errorsOnly` flag drops native passes when aggregating into WCAG.
     R_4_1_1_NEST_ANNOT(
             "4 Robust", "4.1 Compatible", "4.1.1 Parsing",
             "Nesting of annotations in Annot structure elements",
+            true /* errorsOnly */,
             PDFUACheckpoint.NESTING_ANNOTATIONS_ANNOT),
     R_4_1_1_NEST_LINK(
             "4 Robust", "4.1 Compatible", "4.1.1 Parsing",
             "Nesting of \"Link\" annotations inside \"Link\" structure elements",
+            true /* errorsOnly */,
             PDFUACheckpoint.NESTING_LINK_ANNOTATIONS),
     R_4_1_1_NEST_WIDGET(
             "4 Robust", "4.1 Compatible", "4.1.1 Parsing",
