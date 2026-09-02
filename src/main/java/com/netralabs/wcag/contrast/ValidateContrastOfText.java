@@ -524,9 +524,11 @@ public class ValidateContrastOfText implements Rule {
         /** Emit ONE ERROR per Tj/TJ operator when any of its glyphs have a fill
          *  colour we can't convert to RGB (Separation / DeviceN / Pattern / Lab
          *  / Indexed). Emitted at the union bbox of the unresolved glyphs.
-         *  Per-Tj granularity matches PAC's observed count on CalSAWS (146
-         *  operators of Separation-tinted text). Widget-scoped events are still
-         *  dropped. Artifact-scoped events are filtered by the caller. */
+         *  Widget-scoped events are dropped; artifact-scoped events are filtered
+         *  by the caller (whole operator returned early). PAC's observed count
+         *  on CalSAWS is 146 vs our 116 — the 30-error residual is because PAC
+         *  splits some Tj batches finer (likely per-string within TJ arrays) but
+         *  reproducing that requires PAC's exact algorithm. */
         private void emitUnresolvedGlyphs(List<GlyphEvent> glyphs) {
             double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY;
             double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
