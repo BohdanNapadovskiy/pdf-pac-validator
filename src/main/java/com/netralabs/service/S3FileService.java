@@ -2,11 +2,13 @@ package com.netralabs.service;
 
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.S3Object;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -95,6 +97,36 @@ public class S3FileService {
                     "Failed to upload file to S3: " + e.getMessage() + ", Error Code: " + e.getErrorCode(),
                     e
             );
+        }
+    }
+
+    /**
+     * Uploads an in-memory byte payload to an S3 bucket. Used for report JSON
+     * so we don't have to write a temp file first.
+     *
+     * @param bucket      The S3 bucket name
+     * @param key         The S3 object key (destination path)
+     * @param data        Payload bytes
+     * @param contentType Content-Type header to set on the object (nullable)
+     * @throws RuntimeException if upload fails
+     */
+    public void uploadBytes(String bucket, String key, byte[] data, String contentType) {
+        Objects.requireNonNull(data, "data must not be null");
+        logger.info("Uploading bytes to S3. bucket={}, key={}, size={}B", bucket, key, data.length);
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(data.length);
+        if (contentType != null) metadata.setContentType(contentType);
+
+        try (InputStream in = new ByteArrayInputStream(data)) {
+            s3Client.putObject(bucket, key, in, metadata);
+            logger.info("Successfully uploaded bytes to S3: {}/{}", bucket, key);
+        } catch (AmazonS3Exception e) {
+            throw new RuntimeException(
+                    "Failed to upload bytes to S3: " + e.getMessage() + ", Error Code: " + e.getErrorCode(),
+                    e
+            );
+        } catch (IOException e) {
+            throw new RuntimeException("I/O error while uploading bytes to S3", e);
         }
     }
 

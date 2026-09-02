@@ -11,8 +11,8 @@ import java.util.List;
  * reference screenshot).
  * <p>
  * Each constant declares its source {@link PDFUACheckpoint}(s); findings on
- * those checkpoints roll up into the Quality leaf via the same status policy
- * as {@code WCAGReportBuilder.evaluateLeaf}.
+ * those checkpoints roll up into the Quality leaf via the shared status policy
+ * (ERROR &gt; WARNING &gt; PASSED &gt; SKIPPED).
  * <p>
  * Sources with {@code reportName="Quality"} are dedicated to this report;
  * cross-taxonomy sources (e.g. {@code TABLE_REGULARITY}, {@code H_STRUCTURE_ELEMENTS})

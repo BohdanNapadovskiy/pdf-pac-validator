@@ -1,7 +1,8 @@
 # pdf-pac-validator
 
 PDF/UA and WCAG 2.2 accessibility validator with a PAC-compatible JSON report.
-Exposes a Spring Boot REST API and a legacy CLI entry point.
+Exposes a Spring Boot REST API and a legacy CLI entry point. Reads source
+PDFs from S3 and uploads the generated reports back to S3.
 
 Under the hood: iText 9 for native rules, veraPDF as an adapter for the
 remaining coverage, plus a native WCAG 1.4.3 contrast check.
@@ -20,36 +21,41 @@ java -jar target/pdf-validator-1.0-SNAPSHOT.jar
 ```bash
 docker build -t pdf-validator:latest .
 docker run --rm -p 8080:8080 \
-  -v /host/pdfs:/pdfs:ro \
-  -v /host/reports:/reports \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_ACCESS_KEY_ID=... \
+  -e AWS_SECRET_ACCESS_KEY=... \
   pdf-validator:latest
 ```
+
+On EC2 with an instance profile, drop the key env vars — the AWS SDK reads
+credentials from IMDS automatically.
 
 **Validate a PDF**
 
 ```bash
 curl -X POST http://localhost:8080/api/validate \
   -H "Content-Type: application/json" \
-  -d '{"pdfPath":"/pdfs/sample.pdf","outputFolder":"/reports"}'
+  -d '{
+    "bucketName": "pdf-tagging-data-381490270597",
+    "pdfPath": "input/sample.pdf",
+    "outputFolderPath": "reports"
+  }'
 ```
 
-The response inlines the PAC-shaped simple report and returns a `jobId`. The
-detailed report isn't built during POST — fetch it on demand via `jobId`:
+The response returns a `jobId` and the S3 URIs where the two PAC reports
+were uploaded:
 
 ```json
 {
   "jobId": "6a9754b2-3fe5-405b-95c0-f71c3d861e23",
   "sourceFileName": "sample.pdf",
-  "simpleReportPath": "/reports/sample.simple.json",
-  "status": "success",
-  "simpleReport": { "body": { ... }, "version": { "major": 2, "minor": 0 } }
+  "simpleReportS3Uri": "s3://pdf-tagging-data-381490270597/reports/sample.simple.json",
+  "detailedReportS3Uri": "s3://pdf-tagging-data-381490270597/reports/sample.detailed.json",
+  "status": "success"
 }
 ```
 
-```bash
-# Fetch the detailed report — built on demand from cached findings, no PDF re-open.
-curl http://localhost:8080/api/report/6a9754b2-3fe5-405b-95c0-f71c3d861e23/detailed
-```
+Fetch the JSON directly from S3 — the API only reports where it landed.
 
 ## Documentation
 
@@ -66,15 +72,16 @@ src/main/java/
 └── com/netralabs/
     ├── ValidatorApplication.java        (Spring Boot entry point)
     ├── api/
-    │   ├── controller/                  (REST controllers, jobId lookup)
-    │   ├── service/                     (validation orchestration, jobId registry)
+    │   ├── controller/                  (REST controller)
+    │   ├── service/                     (validation orchestration)
     │   └── dto/                         (request/response records)
+    ├── service/                         (S3 client + upload/download helpers)
     ├── Runner.java                      (four-phase rule pipeline)
     ├── basic/ logicalstructure/ ...     (native iText rules)
     ├── vera/                            (veraPDF adapter)
     ├── report/
-    │   ├── pac/                         (PAC simple + detailed report builders)
-    │   └── ...                          (legacy combined report — --legacy flag)
+    │   ├── pac/                         (PAC simple + detailed report builders + S3 writer)
+    │   └── ...                          (legacy combined report DTOs — no longer wired)
     └── wcag/                            (WCAG 2.2 view + contrast rule)
 ```
 

@@ -806,9 +806,10 @@ public enum PDFUACheckpoint {
     ),
 
     // ================================================================
-    // Quality-only checkpoints — reportName="Quality" so ReportBuilder
-    // omits them from the PDF/UA report tree. Feed QualityCriterion
-    // leaves via source mappings.
+    // Quality-only checkpoints — reportName="Quality". The PAC simple/detailed
+    // report builders filter to reportName="PDF/UA" plus WCAG-referenced
+    // checkpoints, so these do not appear in the current output; the rules
+    // still run and are retained for the future Quality report tree.
     // ================================================================
     Q_DOC_TITLE_VALIDITY(
             "Quality", "Quality", "Document", "Validity of document title", "",
