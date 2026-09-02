@@ -134,6 +134,22 @@ public class ValidateContrastOfText implements Rule {
     private static final double INTERSECT_DOMINANCE = 0.5;
 
     /**
+     * Emit an ERROR finding for text whose fill colour is in a colour space we
+     * can't convert to RGB (Separation, DeviceN, Pattern, Lab, Indexed). PAC's
+     * observed behaviour on CalSAWS: the "CalSAWS Consortium" header sits in
+     * DeviceGray + a Separation-tinted overlay, and PAC flags all 146 text
+     * events at that location as "Text with insufficient contrast" — verified
+     * against screenshot 145243.png. The colour is not measurable, and PAC
+     * defaults unmeasurable-colour to fail. We now match that behaviour.
+     *
+     * <p>Widget-scoped and artifact-scoped events are still dropped via the
+     * usual filters. Set {@code -Dpac.contrast.unresolvedColorAsError=false}
+     * to restore the previous silent-skip behaviour.
+     */
+    private static final boolean UNRESOLVED_COLOR_AS_ERROR = Boolean.parseBoolean(
+            System.getProperty("pac.contrast.unresolvedColorAsError", "true"));
+
+    /**
      * Skip text whose innermost marked-content tag is any {@code /Artifact} BDC
      * (typed or untyped). PAC treats all Artifact-scoped text as decorative for
      * 1.4.3 — the user isn't expected to read it, so contrast doesn't apply.
@@ -480,6 +496,12 @@ public class ValidateContrastOfText implements Rule {
                 if (g.bbox[2] > maxX) maxX = g.bbox[2];
                 if (g.bbox[3] > maxY) maxY = g.bbox[3];
             }
+
+            // Emit ERROR findings for glyphs whose colour we can't resolve (Separation
+            // / DeviceN / Pattern / Lab / Indexed). Widget/artifact filters were
+            // already applied in the aggregation pass above (whole operator dropped).
+            if (UNRESOLVED_COLOR_AS_ERROR) emitUnresolvedGlyphs(glyphs);
+
             if (probe == null || qualifying == 0) return;
 
             // Short text-shows: emit one finding per qualifying glyph. Each glyph
@@ -497,6 +519,37 @@ public class ValidateContrastOfText implements Rule {
             // Batched text-show: single union-bbox check, matching legacy behaviour.
             double[] textBox = {minX, minY, maxX, maxY};
             emitOne(probe, textBox, probe.fillRgb);
+        }
+
+        /** Emit ONE ERROR per Tj/TJ operator when any of its glyphs have a fill
+         *  colour we can't convert to RGB (Separation / DeviceN / Pattern / Lab
+         *  / Indexed). Emitted at the union bbox of the unresolved glyphs.
+         *  Per-Tj granularity matches PAC's observed count on CalSAWS (146
+         *  operators of Separation-tinted text). Widget-scoped events are still
+         *  dropped. Artifact-scoped events are filtered by the caller. */
+        private void emitUnresolvedGlyphs(List<GlyphEvent> glyphs) {
+            double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY;
+            double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+            boolean any = false;
+            for (GlyphEvent g : glyphs) {
+                if (g.renderMode == 3) continue;
+                if (g.fillRgb != null) continue;
+                if (g.bbox == null) continue;
+                if (g.bbox[2] - g.bbox[0] < 0.5 || g.bbox[3] - g.bbox[1] < 0.5) continue;
+                if (g.bbox[0] < minX) minX = g.bbox[0];
+                if (g.bbox[1] < minY) minY = g.bbox[1];
+                if (g.bbox[2] > maxX) maxX = g.bbox[2];
+                if (g.bbox[3] > maxY) maxY = g.bbox[3];
+                any = true;
+            }
+            if (!any) return;
+            double[] textBox = {minX, minY, maxX, maxY};
+            if (insideAnyWidget(textBox)) return;
+            BBoxDTO bbox = new BBoxDTO(
+                    (float) textBox[3], (float) textBox[0],
+                    (float) (textBox[3] - textBox[1]), (float) (textBox[2] - textBox[0]));
+            out.add(new FindingDTO(Severity.ERROR, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, bbox,
+                    "Text fill colour is in a colour space contrast cannot be computed for"));
         }
 
         /**
