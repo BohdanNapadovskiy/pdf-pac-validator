@@ -108,6 +108,32 @@ public class ValidateContrastOfText implements Rule {
             Integer.getInteger("pac.contrast.perGlyphMax", Integer.MAX_VALUE);
 
     /**
+     * Background-overlap A/B knob. Controls how {@code backgroundAt} selects a
+     * covering paint from the per-page paint log:
+     * <ul>
+     *   <li>{@code covers} (default) — strict {@code Paint.covers()} bbox
+     *       containment. A paint qualifies only if it fully contains the text
+     *       bbox. Misses banner rectangles that stop at the text's ascent line.</li>
+     *   <li>{@code intersects} — {@code Paint.intersects()} with dominant-area
+     *       tiebreak. Iterate newest-to-oldest; among paints whose intersection
+     *       with the text bbox exceeds {@link #INTERSECT_DOMINANCE} of the text
+     *       area, return the first one encountered (most-recently drawn wins,
+     *       matching painters-model layering).</li>
+     * </ul>
+     * Set via {@code -Dpac.contrast.bgOverlap=intersects}. Under investigation
+     * against Metro (+2288 E) / CalSAWS (-145 E) bg-detection direction; expected
+     * to swing per-file — not a universal fix.
+     */
+    private static final String BG_OVERLAP =
+            System.getProperty("pac.contrast.bgOverlap", "covers");
+
+    /** Minimum intersection-area-over-text-area ratio for a paint to qualify as
+     *  the dominant background under {@code intersects} mode. 0.5 = paint must
+     *  cover at least half the text bbox. Chosen to filter out grazing rectangles
+     *  that clip only the descender/ascender of a glyph. */
+    private static final double INTERSECT_DOMINANCE = 0.5;
+
+    /**
      * PAC compatibility mode. When {@code true}, background detection is disabled
      * and every text-show is measured against pure white ({@code rgb(1,1,1)}).
      * <p>
@@ -217,6 +243,26 @@ public class ValidateContrastOfText implements Rule {
 
         boolean covers(double x0, double y0, double x1, double y1) {
             return minX <= x0 && minY <= y0 && maxX >= x1 && maxY >= y1;
+        }
+
+        /** True iff any part of this paint overlaps the given bbox. Looser than
+         *  {@link #covers(double, double, double, double)} — used by the
+         *  {@code intersects} bg-overlap A/B mode to include banner rectangles
+         *  that stop short of the text's ascent/descent. */
+        boolean intersects(double x0, double y0, double x1, double y1) {
+            if (maxX < x0 || minX > x1) return false;
+            if (maxY < y0 || minY > y1) return false;
+            return true;
+        }
+
+        /** Area of the axis-aligned intersection between this paint and the
+         *  given bbox. Returns 0 when disjoint. Used to pick the dominant paint
+         *  when multiple intersect the text bbox. */
+        double intersectionArea(double x0, double y0, double x1, double y1) {
+            double w = Math.min(maxX, x1) - Math.max(minX, x0);
+            double h = Math.min(maxY, y1) - Math.max(minY, y0);
+            if (w <= 0 || h <= 0) return 0.0;
+            return w * h;
         }
 
         /** Sample the paint's colour at a single point. */
@@ -537,12 +583,22 @@ public class ValidateContrastOfText implements Rule {
         /** Walk the paint log newest-to-oldest and return the topmost covering paint's
          *  effective colour under the text bbox. Images use worst-case pixel sampling
          *  against the given text fill; solid rectangles return their single colour.
-         *  In {@link #PAC_COMPAT} mode returns white unconditionally. */
+         *  In {@link #PAC_COMPAT} mode returns white unconditionally. Selection mode
+         *  is gated on {@link #BG_OVERLAP}. */
         private double[] backgroundAt(double[] textBox, double[] textRgb) {
             if (PAC_COMPAT) return new double[]{1.0, 1.0, 1.0};
+            boolean intersectsMode = "intersects".equals(BG_OVERLAP);
+            double textArea = intersectsMode
+                    ? Math.max(1e-9, (textBox[2] - textBox[0]) * (textBox[3] - textBox[1]))
+                    : 0.0;
             for (int i = paintLog.size() - 1; i >= 0; i--) {
                 Paint p = paintLog.get(i);
-                if (p.covers(textBox[0], textBox[1], textBox[2], textBox[3])) {
+                if (intersectsMode) {
+                    if (p.intersectionArea(textBox[0], textBox[1], textBox[2], textBox[3])
+                            / textArea >= INTERSECT_DOMINANCE) {
+                        return p.worstAgainst(textBox[0], textBox[1], textBox[2], textBox[3], textRgb);
+                    }
+                } else if (p.covers(textBox[0], textBox[1], textBox[2], textBox[3])) {
                     return p.worstAgainst(textBox[0], textBox[1], textBox[2], textBox[3], textRgb);
                 }
             }
