@@ -361,7 +361,7 @@ public class ValidateContrastOfText implements Rule {
         /** Immutable snapshot of the fields we need from a {@link TextRenderInfo}. */
         private record GlyphEvent(double[] fillRgb, double[] bbox, int renderMode,
                                   float fontSize, String fontName, boolean typedArtifact,
-                                  boolean anyArtifact) {}
+                                  boolean anyArtifact, String text) {}
 
         ContrastListener(int pageNum, List<FindingDTO> out, List<double[]> widgetRects,
                          List<double[]> thBboxes) {
@@ -411,7 +411,8 @@ public class ValidateContrastOfText implements Rule {
             }
             return new GlyphEvent(
                     fillRgb, bbox, tri.getTextRenderMode(),
-                    tri.getFontSize(), fontName, isTypedArtifact(tri), isAnyArtifact(tri));
+                    tri.getFontSize(), fontName, isTypedArtifact(tri), isAnyArtifact(tri),
+                    tri.getText());
         }
 
         /** Called by the operator wrapper before iText's default handler processes
@@ -521,37 +522,29 @@ public class ValidateContrastOfText implements Rule {
             emitOne(probe, textBox, probe.fillRgb);
         }
 
-        /** Emit ONE ERROR per Tj/TJ operator when any of its glyphs have a fill
-         *  colour we can't convert to RGB (Separation / DeviceN / Pattern / Lab
-         *  / Indexed). Emitted at the union bbox of the unresolved glyphs.
-         *  Widget-scoped events are dropped; artifact-scoped events are filtered
-         *  by the caller (whole operator returned early). PAC's observed count
-         *  on CalSAWS is 146 vs our 116 — the 30-error residual is because PAC
-         *  splits some Tj batches finer (likely per-string within TJ arrays) but
-         *  reproducing that requires PAC's exact algorithm. */
+        /** Emit ONE ERROR per RENDER_TEXT event whose fill colour we can't convert
+         *  to RGB (Separation / DeviceN / Pattern / Lab / Indexed). PAC splits at
+         *  the content-stream piece level (verified against CalSAWS screenshot
+         *  151741.png where the error rectangle covers exactly "wers Authority)"
+         *  — one of the split fragments of "(A Joint Powers Authority)"). Each
+         *  GlyphEvent in the buffer represents one iText RENDER_TEXT event which
+         *  corresponds to one Tj call / one TJ-array string element. Widget-scoped
+         *  events dropped; whitespace-only events skipped (PAC ignores those).
+         *  Artifact-scoped events already filtered by the caller. */
         private void emitUnresolvedGlyphs(List<GlyphEvent> glyphs) {
-            double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY;
-            double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
-            boolean any = false;
             for (GlyphEvent g : glyphs) {
                 if (g.renderMode == 3) continue;
                 if (g.fillRgb != null) continue;
                 if (g.bbox == null) continue;
                 if (g.bbox[2] - g.bbox[0] < 0.5 || g.bbox[3] - g.bbox[1] < 0.5) continue;
-                if (g.bbox[0] < minX) minX = g.bbox[0];
-                if (g.bbox[1] < minY) minY = g.bbox[1];
-                if (g.bbox[2] > maxX) maxX = g.bbox[2];
-                if (g.bbox[3] > maxY) maxY = g.bbox[3];
-                any = true;
+                if (g.text != null && g.text.isBlank()) continue;
+                if (insideAnyWidget(g.bbox)) continue;
+                BBoxDTO bbox = new BBoxDTO(
+                        (float) g.bbox[3], (float) g.bbox[0],
+                        (float) (g.bbox[3] - g.bbox[1]), (float) (g.bbox[2] - g.bbox[0]));
+                out.add(new FindingDTO(Severity.ERROR, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, bbox,
+                        "Text fill colour is in a colour space contrast cannot be computed for"));
             }
-            if (!any) return;
-            double[] textBox = {minX, minY, maxX, maxY};
-            if (insideAnyWidget(textBox)) return;
-            BBoxDTO bbox = new BBoxDTO(
-                    (float) textBox[3], (float) textBox[0],
-                    (float) (textBox[3] - textBox[1]), (float) (textBox[2] - textBox[0]));
-            out.add(new FindingDTO(Severity.ERROR, PDFUACheckpoint.CONTRAST_OF_TEXT, pageNum, bbox,
-                    "Text fill colour is in a colour space contrast cannot be computed for"));
         }
 
         /**
